@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Resume Analyzer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', path='css/styles.css') }}" />
+</head>
+<body>
+  <div class="background-glow glow-one"></div>
+  <div class="background-glow glow-two"></div>
+
+  <main class="page-shell">
+    <section class="hero">
+      <p class="eyebrow">AI-Powered Career Toolkit</p>
+      <h1>AI Resume Analyzer</h1>
+      <p class="hero-copy">
+        Scan your CV first for ATS-quality insights, then optionally run role-specific matching.
+      </p>
+    </section>
+
+    <section class="panel form-panel">
+      <form id="analysis-form">
+        <div class="input-layout">
+          <article class="input-card">
+            <div class="input-card-head">
+              <h2>Candidate Resume</h2>
+              <p>Upload your CV as a PDF, then run CV scan to get score, feedback, and role options.</p>
+            </div>
+
+            <div class="field-group">
+              <label for="resume_file">Upload Resume (PDF)</label>
+              <input id="resume_file" name="resume_file" type="file" accept=".pdf,application/pdf" />
+              <p class="helper-text">Upload a text-based PDF so the analyzer can extract the resume content.</p>
+            </div>
+
+            <div class="role-workbench">
+              <div class="role-workbench-head">
+                <h3>Suggested Job Roles</h3>
+              </div>
+              <p id="role-status-message" class="role-status" aria-live="polite">Run CV Scan to generate role suggestions.</p>
+              <p id="role-profile-summary" class="profile-summary-note hidden"></p>
+              <div id="role-tags" class="role-tags"></div>
+            </div>
+          </article>
+        </div>
+
+        <div class="form-actions">
+          <button id="scan-cv-btn" type="button">Scan CV</button>
+          <button id="toggle-job-tools-btn" class="secondary-button" type="button">Show Job Match Tools</button>
+          <p id="status-message" class="status-message" aria-live="polite"></p>
+        </div>
+
+        <section id="job-tools-section" class="panel job-tools hidden">
+          <div class="input-card-head">
+            <h2>Optional Job Match Tools</h2>
+            <p>After CV scan, pick a role and optionally add a specific job description for deeper matching.</p>
+          </div>
+
+          <div class="field-group">
+            <label for="target_role">Target Role</label>
+            <div class="role-selector-row">
+              <select id="target_role" name="target_role">
+                <option value="">Select a suggested role...</option>
+              </select>
+              <button id="use-role-template-btn" class="secondary-button" type="button">Use Role Template</button>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label for="job_description">Job Description (Optional)</label>
+            <textarea id="job_description" name="job_description" rows="12" placeholder="Paste the full job description for role-specific matching..."></textarea>
+          </div>
+
+          <div class="form-actions compact">
+            <button id="analyze-btn" type="button">Analyze Selected Role</button>
+          </div>
+        </section>
+      </form>
+    </section>
+
+    <section id="results-section" class="results hidden">
+      <div id="snapshot-grid" class="result-grid snapshot-grid">
+        <article id="resume-snapshot-card" class="panel card snapshot-card">
+          <h3>Resume Used For Analysis</h3>
+          <p id="resume-source-badge" class="snapshot-meta"></p>
+          <pre id="resume-preview" class="snapshot-text"></pre>
+        </article>
+
+        <article id="job-snapshot-card" class="panel card snapshot-card hidden">
+          <h3>Job Description Used For Analysis</h3>
+          <p id="job-target-role" class="snapshot-meta"></p>
+          <pre id="job-description-preview" class="snapshot-text"></pre>
+        </article>
+      </div>
+
+      <div class="panel score-panel">
+        <div>
+          <p id="score-label" class="result-label">CV Score</p>
+          <h2 id="score-value">0</h2>
+          <p id="score-subtitle" class="result-subtitle">ATS readiness out of 100</p>
+        </div>
+        <div id="score-badge" class="score-badge score-low">Needs Work</div>
+      </div>
+
+      <article class="panel card">
+        <h3>Profile Status & Role Direction</h3>
+        <p id="cv-profile-summary" class="body-copy"></p>
+        <p id="cv-current-status" class="snapshot-meta"></p>
+        <ul id="recommended-roles-list" class="tag-list"></ul>
+      </article>
+
+      <div class="result-grid">
+        <article class="panel card">
+          <h3 id="list-a-title">Top Strengths</h3>
+          <ul id="matching-skills-list" class="tag-list"></ul>
+        </article>
+
+        <article class="panel card">
+          <h3 id="list-b-title">Improvement Areas</h3>
+          <ul id="missing-skills-list" class="tag-list missing"></ul>
+        </article>
+      </div>
+
+      <article class="panel card">
+        <h3>Resume Summary</h3>
+        <p id="resume-summary" class="body-copy"></p>
+      </article>
+
+      <article class="panel card">
+        <h3>ATS Improvement Suggestions</h3>
+        <ul id="ats-suggestions-list" class="stacked-list"></ul>
+      </article>
+
+      <article class="panel card">
+        <h3>Rewritten Resume Bullet Points</h3>
+        <ul id="improved-bullets-list" class="stacked-list"></ul>
+      </article>
+
+      <article class="panel card">
+        <h3>Likely Interview Questions</h3>
+        <ul id="interview-questions-list" class="stacked-list"></ul>
+      </article>
+
+      <article class="panel card tailor-card">
+        <h3>Tailor My Resume</h3>
+        <div class="tailor-layout">
+          <div>
+            <h4>Improved Professional Summary</h4>
+            <p id="tailor-summary" class="body-copy"></p>
+          </div>
+
+          <div>
+            <h4>Stronger Project Bullets</h4>
+            <ul id="tailor-bullets-list" class="stacked-list"></ul>
+          </div>
+
+          <div>
+            <h4>Suggested Skills Keywords</h4>
+            <ul id="tailor-skills-list" class="tag-list"></ul>
+          </div>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>Built with FastAPI, local LLM (Ollama) and modern web UI. &copy; {{ year }}</p>
+  </footer>
+
+  <script src="{{ url_for('static', path='js/app.js') }}"></script>
+</body>
+</html>
+<!-- responsive -->
+<!-- responsive -->
+<!-- responsive -->
