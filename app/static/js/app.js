@@ -5,6 +5,8 @@ const useRoleTemplateButton = document.getElementById("use-role-template-btn");
 const analysisForm = document.getElementById("analysis-form");
 
 const statusMessage = document.getElementById("status-message");
+const loadingIndicator = document.getElementById("loading-indicator");
+const loadingText = document.getElementById("loading-text");
 const roleStatusMessage = document.getElementById("role-status-message");
 const roleProfileSummary = document.getElementById("role-profile-summary");
 const roleTags = document.getElementById("role-tags");
@@ -46,6 +48,8 @@ const tailorBulletsList = document.getElementById("tailor-bullets-list");
 const tailorSkillsList = document.getElementById("tailor-skills-list");
 
 let suggestedRoles = [];
+let loadingMessageTimer = null;
+let activeLoadingButton = null;
 
 function setStatus(message, isError = false) {
   statusMessage.textContent = message || "";
@@ -55,6 +59,75 @@ function setStatus(message, isError = false) {
 function setRoleStatus(message, isError = false) {
   roleStatusMessage.textContent = message || "";
   roleStatusMessage.classList.toggle("error", isError);
+}
+
+function startLoading(messages) {
+  if (!loadingIndicator || !loadingText) {
+    return;
+  }
+
+  const steps = Array.isArray(messages) && messages.length > 0 ? messages : ["Working..."];
+  let currentIndex = 0;
+
+  if (loadingMessageTimer) {
+    window.clearInterval(loadingMessageTimer);
+  }
+
+  loadingText.textContent = steps[0];
+  loadingIndicator.removeAttribute("hidden");
+  analysisForm.setAttribute("aria-busy", "true");
+
+  if (steps.length === 1) {
+    loadingMessageTimer = null;
+    return;
+  }
+
+  loadingMessageTimer = window.setInterval(() => {
+    if (currentIndex >= steps.length - 1) {
+      window.clearInterval(loadingMessageTimer);
+      loadingMessageTimer = null;
+      return;
+    }
+
+    currentIndex += 1;
+    loadingText.textContent = steps[currentIndex];
+  }, 1500);
+}
+
+function stopLoading() {
+  if (!loadingIndicator || !loadingText) {
+    return;
+  }
+
+  if (loadingMessageTimer) {
+    window.clearInterval(loadingMessageTimer);
+    loadingMessageTimer = null;
+  }
+
+  loadingIndicator.setAttribute("hidden", "");
+  analysisForm.setAttribute("aria-busy", "false");
+}
+
+function setButtonLoading(button, isLoading, idleLabel, loadingLabel) {
+  if (!button) {
+    return;
+  }
+
+  if (isLoading) {
+    activeLoadingButton = button;
+    button.disabled = true;
+    button.classList.add("is-loading");
+    button.textContent = loadingLabel;
+    return;
+  }
+
+  button.disabled = false;
+  button.classList.remove("is-loading");
+  button.textContent = idleLabel;
+
+  if (activeLoadingButton === button) {
+    activeLoadingButton = null;
+  }
 }
 
 function getScoreLabel(score) {
@@ -315,9 +388,14 @@ async function scanCv() {
     return;
   }
 
-  scanCvButton.disabled = true;
-  scanCvButton.textContent = "Scanning...";
-  setStatus("Scanning CV and generating role recommendations...");
+  setButtonLoading(scanCvButton, true, "Scan CV", "Scanning CV...");
+  setStatus("Scanning your CV. This can take a few seconds...");
+  startLoading([
+    "Checking resume structure...",
+    "Extracting skills and experience...",
+    "Scoring ATS readiness...",
+    "Finding relevant roles...",
+  ]);
 
   try {
     const response = await fetch("/api/scan-cv", {
@@ -335,8 +413,8 @@ async function scanCv() {
   } catch (error) {
     setStatus(error.message || "Unexpected error while scanning CV.", true);
   } finally {
-    scanCvButton.disabled = false;
-    scanCvButton.textContent = "Scan CV";
+    stopLoading();
+    setButtonLoading(scanCvButton, false, "Scan CV", "Scanning CV...");
   }
 }
 
@@ -362,9 +440,14 @@ async function analyzeSelectedRole() {
   listATitle.textContent = "Matching Skills";
   listBTitle.textContent = "Missing Skills";
 
-  analyzeButton.disabled = true;
-  analyzeButton.textContent = "Analyzing...";
-  setStatus("Running role-specific match analysis...");
+  setButtonLoading(analyzeButton, true, "Analyze Selected Role", "Analyzing Role...");
+  setStatus("Running role-specific analysis. This can take a few seconds...");
+  startLoading([
+    "Reading your resume context...",
+    "Comparing role requirements...",
+    "Checking skill overlap...",
+    "Preparing tailored suggestions...",
+  ]);
 
   try {
     const response = await fetch("/api/analyze", {
@@ -402,8 +485,8 @@ async function analyzeSelectedRole() {
     resultsSection.classList.add("hidden");
     setStatus(error.message || "Unexpected error. Please try again.", true);
   } finally {
-    analyzeButton.disabled = false;
-    analyzeButton.textContent = "Analyze Selected Role";
+    stopLoading();
+    setButtonLoading(analyzeButton, false, "Analyze Selected Role", "Analyzing Role...");
   }
 }
 
@@ -444,6 +527,13 @@ if (resumeTextInput) {
 }
 
 fileInput.addEventListener("change", () => {
+  if (fileInput.files.length > 0) {
+    const selectedFile = fileInput.files[0];
+    setStatus(`Selected resume: ${selectedFile.name}`);
+  } else {
+    setStatus("");
+  }
+
   if (suggestedRoles.length > 0) {
     setRoleStatus("Resume file changed. Re-run CV scan for updated role suggestions.");
   }

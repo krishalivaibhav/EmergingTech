@@ -13,7 +13,7 @@ async def index(request: Request) -> HTMLResponse:
         "index.html",
         {
             "request": request,
+            "asset_version": int(datetime.now().timestamp()),
             "year": datetime.now().year,
         },
     )
-
