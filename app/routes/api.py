@@ -1,13 +1,29 @@
 from functools import lru_cache
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 
-from app.models.schemas import AnalysisResponse, CVScanResponse, RoleSuggestionResponse
+from app.models.schemas import (
+    AnalysisResponse,
+    CVScanResponse,
+    LatexCompileRequest,
+    ResumeUpgradeResponse,
+    RoleSuggestionResponse,
+)
 from app.services.analyzer import ResumeJobAnalyzer
 from app.services.groq_service import GroqConfigurationError, GroqServiceError
+from app.services.latex_compiler import (
+    LaTeXCompilationError,
+    LaTeXCompilerService,
+    LaTeXCompilerUnavailableError,
+)
 from app.services.llm_service import LLMConfigurationError, LLMServiceError
 from app.services.local_llm_service import LocalLLMConfigurationError, LocalLLMServiceError
 from app.services.pdf_parser import PDFParsingError, extract_text_from_pdf_bytes
+from app.services.pdf_preview_service import (
+    PDFPreviewRenderError,
+    PDFPreviewService,
+    PDFPreviewUnavailableError,
+)
 
 
 router = APIRouter(prefix="/api", tags=["analysis"])
@@ -16,6 +32,16 @@ router = APIRouter(prefix="/api", tags=["analysis"])
 @lru_cache(maxsize=1)
 def get_analyzer() -> ResumeJobAnalyzer:
     return ResumeJobAnalyzer()
+
+
+@lru_cache(maxsize=1)
+def get_latex_compiler() -> LaTeXCompilerService:
+    return LaTeXCompilerService()
+
+
+@lru_cache(maxsize=1)
+def get_pdf_preview_service() -> PDFPreviewService:
+    return PDFPreviewService()
 
 
 def _is_pdf_upload(upload: UploadFile) -> bool:
@@ -140,3 +166,79 @@ async def scan_cv(
             status_code=502,
             detail=f"CV scan failed. Please retry. ({exc})",
         ) from exc
+
+
+@router.post("/resume-upgrade", response_model=ResumeUpgradeResponse)
+async def resume_upgrade(
+    resume_file: UploadFile | None = File(default=None),
+    resume_text: str = Form(default=""),
+    job_description: str = Form(default=""),
+    target_role: str = Form(default=""),
+    baseline_score: int | None = Form(default=None),
+) -> ResumeUpgradeResponse:
+    combined_resume = await _collect_resume_text(resume_file=resume_file, resume_text=resume_text)
+    cleaned_job_description = job_description.strip()
+    cleaned_target_role = target_role.strip()
+
+    if not cleaned_target_role:
+        raise HTTPException(
+            status_code=400,
+            detail="Select a target role before generating the upgraded resume.",
+        )
+
+    if cleaned_job_description:
+        effective_job_description = cleaned_job_description
+        effective_job_description = (
+            f"Selected Role Focus: {cleaned_target_role}\n\n{cleaned_job_description}"
+        )
+    else:
+        effective_job_description = _build_role_based_job_description(cleaned_target_role)
+
+    try:
+        analyzer = get_analyzer()
+        return analyzer.generate_resume_upgrade(
+            resume_text=combined_resume,
+            job_description=effective_job_description,
+            baseline_score=baseline_score,
+        )
+    except (LLMConfigurationError, GroqConfigurationError, LocalLLMConfigurationError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except (LLMServiceError, GroqServiceError, LocalLLMServiceError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Resume upgrade failed. Please retry. ({exc})",
+        ) from exc
+
+
+@router.post("/compile-latex")
+async def compile_latex_preview(payload: LatexCompileRequest) -> Response:
+    try:
+        compiler = get_latex_compiler()
+        pdf_bytes = compiler.compile_pdf(payload.latex_resume)
+    except LaTeXCompilerUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LaTeXCompilationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    headers = {"Content-Disposition": 'inline; filename="updated-resume-preview.pdf"'}
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
+
+
+@router.post("/compile-latex-preview-image")
+async def compile_latex_preview_image(payload: LatexCompileRequest) -> Response:
+    try:
+        compiler = get_latex_compiler()
+        pdf_bytes = compiler.compile_pdf(payload.latex_resume)
+        preview_service = get_pdf_preview_service()
+        png_bytes = preview_service.render_first_page_png(pdf_bytes)
+    except LaTeXCompilerUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LaTeXCompilationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PDFPreviewUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except PDFPreviewRenderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    headers = {"Content-Disposition": 'inline; filename="updated-resume-preview.png"'}
+    return Response(content=png_bytes, media_type="image/png", headers=headers)

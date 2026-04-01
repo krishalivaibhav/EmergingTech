@@ -46,10 +46,32 @@ const interviewQuestionsList = document.getElementById("interview-questions-list
 const tailorSummary = document.getElementById("tailor-summary");
 const tailorBulletsList = document.getElementById("tailor-bullets-list");
 const tailorSkillsList = document.getElementById("tailor-skills-list");
+const upgradeCard = document.getElementById("upgrade-card");
+const generateUpgradeButton = document.getElementById("generate-upgrade-btn");
+const downloadPdfButton = document.getElementById("download-pdf-btn");
+const downloadLatexButton = document.getElementById("download-latex-btn");
+const copyLatexButton = document.getElementById("copy-latex-btn");
+const upgradeStatusMessage = document.getElementById("upgrade-status-message");
+const upgradePreviewStatus = document.getElementById("upgrade-preview-status");
+const upgradeResults = document.getElementById("upgrade-results");
+const upgradeScoreBefore = document.getElementById("upgrade-score-before");
+const upgradeScoreAfter = document.getElementById("upgrade-score-after");
+const upgradeSummary = document.getElementById("upgrade-summary");
+const upgradeImprovementsList = document.getElementById("upgrade-improvements-list");
+const upgradeOriginalPreview = document.getElementById("upgrade-original-preview");
+const upgradeUpdatedPreview = document.getElementById("upgrade-updated-preview");
+const upgradeLatexOutput = document.getElementById("upgrade-latex-output");
+const upgradeLatexNotesList = document.getElementById("upgrade-latex-notes-list");
 
 let suggestedRoles = [];
 let loadingMessageTimer = null;
 let activeLoadingButton = null;
+let latestLatexResume = "";
+let latestCompiledPdfUrl = "";
+let latestCompiledPreviewUrl = "";
+let roleAnalysisReady = false;
+let latestCvScanScore = null;
+let uploadedResumePreviewUrl = "";
 
 function setStatus(message, isError = false) {
   statusMessage.textContent = message || "";
@@ -59,6 +81,49 @@ function setStatus(message, isError = false) {
 function setRoleStatus(message, isError = false) {
   roleStatusMessage.textContent = message || "";
   roleStatusMessage.classList.toggle("error", isError);
+}
+
+function setUpgradeStatus(message, isError = false) {
+  upgradeStatusMessage.textContent = message || "";
+  upgradeStatusMessage.classList.toggle("error", isError);
+}
+
+function setUpgradePreviewStatus(message, isError = false) {
+  upgradePreviewStatus.textContent = message || "";
+  upgradePreviewStatus.classList.toggle("error", isError);
+}
+
+function releaseUploadedResumePreview() {
+  if (uploadedResumePreviewUrl) {
+    window.URL.revokeObjectURL(uploadedResumePreviewUrl);
+    uploadedResumePreviewUrl = "";
+  }
+}
+
+function releaseCompiledPdfPreview() {
+  releaseCompiledDownloadPdf();
+  releaseCompiledPreviewImage();
+}
+
+function releaseCompiledDownloadPdf() {
+  if (latestCompiledPdfUrl) {
+    window.URL.revokeObjectURL(latestCompiledPdfUrl);
+    latestCompiledPdfUrl = "";
+  }
+}
+
+function releaseCompiledPreviewImage() {
+  if (latestCompiledPreviewUrl) {
+    window.URL.revokeObjectURL(latestCompiledPreviewUrl);
+    latestCompiledPreviewUrl = "";
+  }
+}
+
+function buildPdfPreviewUrl(url) {
+  if (!url) {
+    return "";
+  }
+  return `${url}#page=1&toolbar=0&navpanes=0&scrollbar=0&zoom=page-width`;
 }
 
 function startLoading(messages) {
@@ -161,6 +226,13 @@ function renderList(listEl, items, emptyText) {
   });
 }
 
+function slugify(value) {
+  return String(value || "resume")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "resume";
+}
+
 function clipText(text, maxChars = 2200) {
   if (!text) {
     return "";
@@ -197,6 +269,10 @@ function renderRoleChips(roles, selectedRole = "") {
     chip.addEventListener("click", () => {
       targetRoleSelect.value = role;
       renderRoleChips(suggestedRoles, role);
+      roleAnalysisReady = false;
+      upgradeCard.classList.add("hidden");
+      resetUpgradeResults();
+      updateUpgradeAvailability();
       setStatus(`Selected role: ${role}`);
     });
     roleTags.appendChild(chip);
@@ -244,6 +320,280 @@ function resetResults() {
   resumeSnapshotCard.classList.remove("hidden");
   jobSnapshotCard.classList.add("hidden");
   snapshotGrid.classList.add("single-column");
+  latestCvScanScore = null;
+  roleAnalysisReady = false;
+  upgradeCard.classList.add("hidden");
+  resetUpgradeResults();
+}
+
+function resetUpgradeResults() {
+  latestLatexResume = "";
+  releaseCompiledPdfPreview();
+  upgradeScoreBefore.textContent = "0";
+  upgradeScoreAfter.textContent = "0";
+  upgradeSummary.textContent = "";
+  upgradeOriginalPreview.classList.remove("pdf-preview-shell");
+  upgradeUpdatedPreview.classList.remove("pdf-preview-shell");
+  upgradeOriginalPreview.innerHTML = "";
+  upgradeUpdatedPreview.innerHTML = "";
+  upgradeLatexOutput.textContent = "";
+  upgradeImprovementsList.innerHTML = "";
+  upgradeLatexNotesList.innerHTML = "";
+  upgradeResults.classList.add("hidden");
+  downloadPdfButton.classList.add("hidden");
+  downloadLatexButton.classList.add("hidden");
+  copyLatexButton.classList.add("hidden");
+  setUpgradePreviewStatus("");
+}
+
+function isSectionHeading(line) {
+  const normalized = String(line || "").trim();
+  if (!normalized) {
+    return false;
+  }
+
+  const normalizedKey = normalized.toLowerCase().replace(/[:\s]+$/g, "");
+  const knownHeadings = new Set([
+    "summary",
+    "professional summary",
+    "technical skills",
+    "skills",
+    "experience",
+    "projects",
+    "education",
+    "certifications",
+    "achievements",
+    "leadership",
+    "activities",
+  ]);
+
+  return knownHeadings.has(normalizedKey);
+}
+
+function parseResumeSnapshot(snapshotText) {
+  const lines = String(snapshotText || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) {
+    return {
+      name: "Resume Preview",
+      contact: "",
+      sections: [],
+    };
+  }
+
+  const parsed = {
+    name: lines[0],
+    contact: "",
+    sections: [],
+  };
+
+  let index = 1;
+  if (
+    lines[1] &&
+    /[@|]|linkedin|github|phone|\+\d|\d{10}/i.test(lines[1])
+  ) {
+    parsed.contact = lines[1];
+    index = 2;
+  }
+
+  let currentSection = null;
+
+  const ensureSection = (title) => {
+    currentSection = { title, items: [] };
+    parsed.sections.push(currentSection);
+  };
+
+  for (; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (isSectionHeading(line)) {
+      ensureSection(line.replace(/:$/, ""));
+      continue;
+    }
+
+    if (!currentSection) {
+      ensureSection("Profile");
+    }
+
+    if (/^[-•*]\s+/.test(line)) {
+      currentSection.items.push({
+        type: "bullet",
+        text: line.replace(/^[-•*]\s+/, "").trim(),
+      });
+      continue;
+    }
+
+    const itemType =
+      line.includes(":") && line.length <= 140 ? "inline-meta" : "line";
+
+    currentSection.items.push({
+      type: itemType,
+      text: line,
+    });
+  }
+
+  return parsed;
+}
+
+function renderResumePreview(container, snapshotText) {
+  container.innerHTML = "";
+
+  const parsed = parseResumeSnapshot(snapshotText);
+  const sheet = document.createElement("article");
+  sheet.className = "resume-sheet";
+
+  const header = document.createElement("header");
+  header.className = "resume-sheet-header";
+
+  const name = document.createElement("h5");
+  name.className = "resume-sheet-name";
+  name.textContent = parsed.name || "Resume Preview";
+  header.appendChild(name);
+
+  if (parsed.contact) {
+    const contact = document.createElement("p");
+    contact.className = "resume-sheet-contact";
+    contact.textContent = parsed.contact;
+    header.appendChild(contact);
+  }
+
+  sheet.appendChild(header);
+
+  if (!parsed.sections.length) {
+    const empty = document.createElement("p");
+    empty.className = "resume-sheet-empty";
+    empty.textContent = "No resume preview data available.";
+    sheet.appendChild(empty);
+    container.appendChild(sheet);
+    return;
+  }
+
+  parsed.sections.forEach((sectionData) => {
+    const section = document.createElement("section");
+    section.className = "resume-sheet-section";
+
+    const title = document.createElement("h6");
+    title.className = "resume-sheet-section-title";
+    title.textContent = sectionData.title;
+    section.appendChild(title);
+
+    let bulletList = null;
+
+    const flushBullets = () => {
+      if (bulletList) {
+        section.appendChild(bulletList);
+        bulletList = null;
+      }
+    };
+
+    sectionData.items.forEach((item) => {
+      if (item.type === "bullet") {
+        if (!bulletList) {
+          bulletList = document.createElement("ul");
+          bulletList.className = "resume-sheet-bullets";
+        }
+        const li = document.createElement("li");
+        li.textContent = item.text;
+        bulletList.appendChild(li);
+        return;
+      }
+
+      flushBullets();
+      const line = document.createElement("p");
+      line.className =
+        item.type === "inline-meta" ? "resume-sheet-inline-meta" : "resume-sheet-line";
+      line.textContent = item.text;
+      section.appendChild(line);
+    });
+
+    flushBullets();
+    sheet.appendChild(section);
+  });
+
+  container.appendChild(sheet);
+}
+
+function renderOriginalResumePreview(snapshotText) {
+  if (uploadedResumePreviewUrl) {
+    upgradeOriginalPreview.innerHTML = "";
+    const frame = document.createElement("iframe");
+    frame.className = "pdf-preview-object";
+    frame.src = buildPdfPreviewUrl(uploadedResumePreviewUrl);
+    frame.title = "Uploaded original resume PDF preview";
+    frame.loading = "lazy";
+    upgradeOriginalPreview.classList.add("pdf-preview-shell");
+    upgradeOriginalPreview.appendChild(frame);
+    return;
+  }
+
+  upgradeOriginalPreview.classList.remove("pdf-preview-shell");
+  renderResumePreview(upgradeOriginalPreview, snapshotText);
+}
+
+async function compileResumePreview(latexSource, selectedRole) {
+  if (!latexSource) {
+    setUpgradePreviewStatus("No LaTeX source available for PDF compilation.", true);
+    return;
+  }
+
+  setUpgradePreviewStatus("Rendering updated resume preview...");
+  upgradeUpdatedPreview.classList.remove("pdf-preview-shell");
+
+  try {
+    const response = await fetch("/api/compile-latex-preview-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ latex_resume: latexSource }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || "Unable to compile the PDF preview right now.");
+    }
+
+    const previewBlob = await response.blob();
+    releaseCompiledPreviewImage();
+    latestCompiledPreviewUrl = window.URL.createObjectURL(previewBlob);
+    upgradeUpdatedPreview.innerHTML = "";
+    upgradeUpdatedPreview.classList.add("pdf-preview-shell");
+
+    const previewImage = document.createElement("img");
+    previewImage.className = "pdf-preview-image";
+    previewImage.src = latestCompiledPreviewUrl;
+    previewImage.alt = `Updated resume preview for ${selectedRole || "selected role"}`;
+    previewImage.loading = "lazy";
+    upgradeUpdatedPreview.appendChild(previewImage);
+
+    downloadPdfButton.classList.remove("hidden");
+    setUpgradePreviewStatus("Updated resume preview is ready.");
+  } catch (error) {
+    downloadPdfButton.classList.add("hidden");
+    upgradeUpdatedPreview.classList.remove("pdf-preview-shell");
+    setUpgradePreviewStatus(
+      `${error.message || "Preview rendering failed."} Showing structured preview instead.`,
+      true
+    );
+  }
+}
+
+function updateUpgradeAvailability() {
+  const selectedRole = targetRoleSelect.value.trim();
+  const isUnlocked = roleAnalysisReady && !!selectedRole;
+  generateUpgradeButton.disabled = !isUnlocked;
+
+  if (!roleAnalysisReady) {
+    setUpgradeStatus("Run role analysis first to unlock this feature.");
+    return;
+  }
+
+  if (!selectedRole) {
+    setUpgradeStatus("Select a target role in Job Match Tools to unlock this feature.");
+    return;
+  }
+
+  setUpgradeStatus(`Upgrade is ready to generate for ${selectedRole}.`);
 }
 
 function renderInputPreview(context) {
@@ -311,6 +661,28 @@ function renderAnalysisCards(result, context) {
   resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+function renderResumeUpgrade(data, selectedRole) {
+  latestLatexResume = data.latex_resume || "";
+  const beforeScore = Number(data.ats_score_before || 0);
+  const afterScore = Number(data.ats_score_after || beforeScore);
+  upgradeScoreBefore.textContent = String(beforeScore);
+  upgradeScoreAfter.textContent = String(afterScore);
+  upgradeSummary.textContent = data.improvement_summary || "No upgrade summary available.";
+  renderOriginalResumePreview(data.original_resume_snapshot || "No original snapshot available.");
+  upgradeUpdatedPreview.classList.remove("pdf-preview-shell");
+  renderResumePreview(
+    upgradeUpdatedPreview,
+    data.updated_resume_snapshot || "No updated snapshot available."
+  );
+  upgradeLatexOutput.textContent = latestLatexResume || "% No LaTeX output was generated.";
+  renderList(upgradeImprovementsList, data.key_improvements, "No improvements were generated.");
+  renderList(upgradeLatexNotesList, data.latex_notes, "No LaTeX notes available.");
+  upgradeResults.classList.remove("hidden");
+  downloadLatexButton.classList.remove("hidden");
+  copyLatexButton.classList.remove("hidden");
+  setUpgradeStatus(`Generated a role-tailored resume upgrade for ${selectedRole}.`);
+}
+
 function buildResumeFormData() {
   const resumeText = resumeTextInput ? resumeTextInput.value.trim() : "";
   const hasFile = fileInput.files.length > 0;
@@ -339,11 +711,150 @@ function ensureResumeInput(resumeText, hasFile) {
   return true;
 }
 
+async function generateResumeUpgrade() {
+  setStatus("");
+  const { formData, resumeText, hasFile } = buildResumeFormData();
+  if (!ensureResumeInput(resumeText, hasFile)) {
+    return;
+  }
+
+  const selectedRole = targetRoleSelect.value.trim();
+  const jobDescription = jobDescriptionInput.value.trim();
+  if (!selectedRole) {
+    setUpgradeStatus("Select a target role before generating the updated resume.", true);
+    return;
+  }
+
+  formData.append("target_role", selectedRole);
+  formData.append("job_description", jobDescription);
+  if (Number.isFinite(latestCvScanScore) && latestCvScanScore > 0) {
+    formData.append("baseline_score", String(latestCvScanScore));
+  }
+
+  setButtonLoading(generateUpgradeButton, true, "Generate Resume Difference", "Building ATS Resume...");
+  setUpgradeStatus(`Generating a role-tailored resume upgrade for ${selectedRole}...`);
+  startLoading([
+    "Reviewing the selected role context...",
+    "Rewriting resume content for ATS alignment...",
+    "Building the before vs after comparison...",
+    "Preparing Overleaf LaTeX output...",
+  ]);
+
+  try {
+    const response = await fetch("/api/resume-upgrade", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "Unable to generate the resume upgrade right now.");
+    }
+
+    renderResumeUpgrade(data, selectedRole);
+    await compileResumePreview(data.latex_resume || "", selectedRole);
+  } catch (error) {
+    setUpgradeStatus(error.message || "Unexpected error while generating the updated resume.", true);
+  } finally {
+    stopLoading();
+    setButtonLoading(
+      generateUpgradeButton,
+      false,
+      "Generate Resume Difference",
+      "Building ATS Resume..."
+    );
+  }
+}
+
+function downloadLatexResume() {
+  if (!latestLatexResume) {
+    setUpgradeStatus("Generate the updated resume before downloading the LaTeX file.", true);
+    return;
+  }
+
+  const selectedRole = targetRoleSelect.value.trim();
+  const fileName = `${slugify(selectedRole || "ats-upgrade")}-resume.tex`;
+  const blob = new Blob([latestLatexResume], { type: "text/plain;charset=utf-8" });
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = downloadUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
+async function copyLatexResume() {
+  if (!latestLatexResume) {
+    setUpgradeStatus("Generate the updated resume before copying the LaTeX code.", true);
+    return;
+  }
+
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(latestLatexResume);
+    } else {
+      const textArea = document.createElement("textarea");
+      textArea.value = latestLatexResume;
+      textArea.setAttribute("readonly", "");
+      textArea.style.position = "absolute";
+      textArea.style.left = "-9999px";
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand("copy");
+      textArea.remove();
+    }
+
+    setUpgradeStatus("LaTeX code copied. Paste it directly into Overleaf.");
+  } catch (error) {
+    setUpgradeStatus("Unable to copy the LaTeX code automatically. Use the code block below.", true);
+  }
+}
+
+async function downloadPdfResume() {
+  if (!latestLatexResume) {
+    setUpgradePreviewStatus("Generate the updated resume preview before downloading the PDF.", true);
+    return;
+  }
+
+  try {
+    setUpgradePreviewStatus("Preparing PDF download...");
+    const response = await fetch("/api/compile-latex", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ latex_resume: latestLatexResume }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || "Unable to compile the PDF for download.");
+    }
+
+    const pdfBlob = await response.blob();
+    releaseCompiledDownloadPdf();
+    latestCompiledPdfUrl = window.URL.createObjectURL(pdfBlob);
+
+    const selectedRole = targetRoleSelect.value.trim();
+    const fileName = `${slugify(selectedRole || "ats-upgrade")}-resume.pdf`;
+    const link = document.createElement("a");
+    link.href = latestCompiledPdfUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setUpgradePreviewStatus("PDF download is ready.");
+  } catch (error) {
+    setUpgradePreviewStatus(error.message || "Unable to download the PDF right now.", true);
+  }
+}
+
 function renderCvScanResult(data, context) {
   scoreLabel.textContent = "CV Score";
   scoreSubtitle.textContent = "ATS readiness out of 100";
   listATitle.textContent = "Top Strengths";
   listBTitle.textContent = "Improvement Areas";
+  latestCvScanScore = Number.isFinite(data.cv_score) ? data.cv_score : Number(data.cv_score || 0);
 
   renderAnalysisCards(
     {
@@ -370,6 +881,9 @@ function renderCvScanResult(data, context) {
   suggestedRoles = Array.isArray(data.recommended_roles) ? data.recommended_roles : [];
   setRoleOptions(suggestedRoles);
   renderRoleChips(suggestedRoles, targetRoleSelect.value);
+  roleAnalysisReady = false;
+  upgradeCard.classList.add("hidden");
+  updateUpgradeAvailability();
 
   roleProfileSummary.textContent = data.profile_summary || "";
   roleProfileSummary.classList.toggle("hidden", !data.profile_summary);
@@ -383,6 +897,8 @@ function renderCvScanResult(data, context) {
 
 async function scanCv() {
   setStatus("");
+  resetUpgradeResults();
+  updateUpgradeAvailability();
   const { formData, resumeText, hasFile, fileName } = buildResumeFormData();
   if (!ensureResumeInput(resumeText, hasFile)) {
     return;
@@ -420,6 +936,8 @@ async function scanCv() {
 
 async function analyzeSelectedRole() {
   setStatus("");
+  resetUpgradeResults();
+  updateUpgradeAvailability();
   const { formData, resumeText, hasFile, fileName } = buildResumeFormData();
   if (!ensureResumeInput(resumeText, hasFile)) {
     return;
@@ -469,6 +987,10 @@ async function analyzeSelectedRole() {
       showJobSnapshot: true,
     });
 
+    roleAnalysisReady = true;
+    upgradeCard.classList.remove("hidden");
+    updateUpgradeAvailability();
+
     cvProfileSummary.textContent = selectedRole
       ? `Role-targeted analysis completed for ${selectedRole}.`
       : "Role-targeted analysis completed.";
@@ -481,6 +1003,8 @@ async function analyzeSelectedRole() {
 
     setStatus("Role analysis complete.");
   } catch (error) {
+    roleAnalysisReady = false;
+    upgradeCard.classList.add("hidden");
     resetResults();
     resultsSection.classList.add("hidden");
     setStatus(error.message || "Unexpected error. Please try again.", true);
@@ -500,6 +1024,10 @@ toggleJobToolsButton.addEventListener("click", () => {
 
 targetRoleSelect.addEventListener("change", () => {
   renderRoleChips(suggestedRoles, targetRoleSelect.value);
+  roleAnalysisReady = false;
+  upgradeCard.classList.add("hidden");
+  resetUpgradeResults();
+  updateUpgradeAvailability();
 });
 
 useRoleTemplateButton.addEventListener("click", () => {
@@ -527,12 +1055,19 @@ if (resumeTextInput) {
 }
 
 fileInput.addEventListener("change", () => {
+  releaseUploadedResumePreview();
   if (fileInput.files.length > 0) {
     const selectedFile = fileInput.files[0];
+    uploadedResumePreviewUrl = window.URL.createObjectURL(selectedFile);
     setStatus(`Selected resume: ${selectedFile.name}`);
   } else {
     setStatus("");
   }
+
+  roleAnalysisReady = false;
+  upgradeCard.classList.add("hidden");
+  resetUpgradeResults();
+  updateUpgradeAvailability();
 
   if (suggestedRoles.length > 0) {
     setRoleStatus("Resume file changed. Re-run CV scan for updated role suggestions.");
@@ -540,6 +1075,14 @@ fileInput.addEventListener("change", () => {
 });
 
 analyzeButton.addEventListener("click", analyzeSelectedRole);
+generateUpgradeButton.addEventListener("click", generateResumeUpgrade);
+downloadPdfButton.addEventListener("click", downloadPdfResume);
+downloadLatexButton.addEventListener("click", downloadLatexResume);
+copyLatexButton.addEventListener("click", copyLatexResume);
+updateUpgradeAvailability();
+
+window.addEventListener("beforeunload", releaseUploadedResumePreview);
+window.addEventListener("beforeunload", releaseCompiledPdfPreview);
 
 analysisForm.addEventListener("submit", (event) => {
   event.preventDefault();

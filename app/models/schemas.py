@@ -86,3 +86,47 @@ class CVScanResponse(BaseModel):
     improved_bullets: list[str] = Field(
         default_factory=list, description="Stronger bullet rewrites for the CV."
     )
+
+
+class ResumeUpgradeResponse(BaseModel):
+    ats_score_before: int = Field(
+        ge=0,
+        le=100,
+        description="Estimated ATS score before applying the upgraded resume rewrite.",
+    )
+    ats_score_after: int = Field(
+        ge=0,
+        le=100,
+        description="Estimated ATS score after applying the upgraded resume rewrite.",
+    )
+    improvement_summary: str = Field(
+        default="",
+        description="High-level explanation of how the upgraded resume improves ATS alignment.",
+    )
+    key_improvements: list[str] = Field(
+        default_factory=list,
+        description="Specific before-vs-after improvements reflected in the upgraded resume.",
+    )
+    original_resume_snapshot: str = Field(
+        default="",
+        description="Condensed plain-text snapshot of the original resume structure/content.",
+    )
+    updated_resume_snapshot: str = Field(
+        default="",
+        description="Condensed plain-text snapshot of the upgraded resume content.",
+    )
+    latex_resume: str = Field(
+        default="",
+        description="Overleaf-ready LaTeX source for the upgraded resume.",
+    )
+    latex_notes: list[str] = Field(
+        default_factory=list,
+        description="Notes about assumptions or recommended edits before using the generated LaTeX resume.",
+    )
+
+
+class LatexCompileRequest(BaseModel):
+    latex_resume: str = Field(
+        min_length=1,
+        description="Full LaTeX resume source to compile into a PDF preview.",
+    )

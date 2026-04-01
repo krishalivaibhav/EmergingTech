@@ -168,6 +168,87 @@
           </div>
         </div>
       </article>
+
+      <article id="upgrade-card" class="panel card upgrade-card hidden">
+        <div class="upgrade-head">
+          <div>
+            <h3>Check Difference Between Old And New Updated Resume</h3>
+            <p class="body-copy">
+              Select a target role first, then generate an ATS-improved resume rewrite and an Overleaf-ready LaTeX draft tailored to that role.
+            </p>
+          </div>
+          <div class="upgrade-actions">
+            <button id="generate-upgrade-btn" type="button" disabled>Generate Resume Difference</button>
+            <button id="download-pdf-btn" class="secondary-button hidden" type="button">Download PDF</button>
+            <button id="download-latex-btn" class="secondary-button hidden" type="button">Download LaTeX</button>
+          </div>
+        </div>
+        <p id="upgrade-status-message" class="status-message" aria-live="polite">Select a target role in Job Match Tools to unlock this feature.</p>
+        <p id="upgrade-preview-status" class="status-message" aria-live="polite"></p>
+
+        <div id="upgrade-results" class="hidden">
+          <div class="result-grid upgrade-score-grid">
+            <article class="panel card compact-card">
+              <p class="result-label">Before</p>
+              <h3 id="upgrade-score-before">0</h3>
+              <p class="result-subtitle">Estimated ATS score</p>
+            </article>
+            <article class="panel card compact-card">
+              <p class="result-label">After</p>
+              <h3 id="upgrade-score-after">0</h3>
+              <p class="result-subtitle">Estimated ATS score</p>
+            </article>
+          </div>
+
+          <article class="panel card">
+            <h3>Upgrade Summary</h3>
+            <p id="upgrade-summary" class="body-copy"></p>
+          </article>
+
+          <article class="panel card">
+            <h3>Key Improvements</h3>
+            <ul id="upgrade-improvements-list" class="stacked-list"></ul>
+          </article>
+
+          <article class="panel card compare-card">
+            <h3>Resume Preview Compare</h3>
+            <p class="body-copy">
+              Review your original CV against the ATS-improved draft in a resume-style preview instead of raw extracted text.
+            </p>
+
+            <div class="result-grid upgrade-diff-grid">
+              <article class="panel card snapshot-card compare-pane">
+                <div class="compare-pane-head">
+                  <h4>Original CV</h4>
+                  <span class="compare-pane-meta">Current version</span>
+                </div>
+                <div id="upgrade-original-preview" class="resume-preview-frame"></div>
+              </article>
+
+              <article class="panel card snapshot-card compare-pane">
+                <div class="compare-pane-head">
+                  <h4>Updated CV Draft</h4>
+                  <span class="compare-pane-meta">Role-tailored rewrite</span>
+                </div>
+                <div id="upgrade-updated-preview" class="resume-preview-frame"></div>
+              </article>
+            </div>
+          </article>
+
+          <article class="panel card latex-card">
+            <div class="latex-card-head">
+              <h3>Overleaf LaTeX Resume</h3>
+              <button id="copy-latex-btn" class="secondary-button hidden" type="button">Copy LaTeX</button>
+            </div>
+            <pre id="upgrade-latex-output" class="snapshot-text code-block"></pre>
+          </article>
+
+          <article class="panel card">
+            <h3>LaTeX Notes</h3>
+            <ul id="upgrade-latex-notes-list" class="stacked-list"></ul>
+          </article>
+        </div>
+      </article>
     </section>
   </main>
 

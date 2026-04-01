@@ -187,6 +187,83 @@ class LocalLLMService:
 
         return self._load_json(content)
 
+    def generate_resume_upgrade(self, resume_text: str, job_description: str) -> dict[str, Any]:
+        system_prompt = dedent(
+            """
+            You are an expert ATS recruiter and resume writer.
+            Rebuild the candidate's resume into a stronger ATS-optimized version using the same underlying evidence from the original resume.
+            Return valid JSON only.
+
+            Rules:
+            - Do not use markdown.
+            - Return only JSON.
+            - Do not invent employers, degrees, dates, projects, or achievements not supported by the resume text.
+            - You may rewrite, reorder, and sharpen content for ATS fit.
+            - ats_score_after must be greater than or equal to ats_score_before.
+            - key_improvements and latex_notes must be arrays of short strings, not objects.
+            - improved_experience_bullets must be an array of short bullet strings.
+            - targeted_keywords must be an array of concise ATS keywords.
+            - improved_summary must be one concise paragraph.
+            - Keep the JSON compact. Do not include long full-resume snapshots.
+
+            Required JSON shape:
+            {
+              "ats_score_before": 0,
+              "ats_score_after": 0,
+              "improvement_summary": "",
+              "key_improvements": [],
+              "improved_summary": "",
+              "targeted_keywords": [],
+              "improved_experience_bullets": [],
+              "latex_notes": []
+            }
+            """
+        ).strip()
+
+        user_prompt = dedent(
+            f"""
+            Target Role / Job Context:
+            {job_description}
+
+            Candidate Resume:
+            {resume_text}
+            """
+        ).strip()
+
+        payload = {
+            "model": self.model,
+            "stream": False,
+            "format": "json",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "options": {"temperature": 0.2},
+        }
+
+        try:
+            response = self.client.post("/api/chat", json=payload)
+        except httpx.HTTPError as exc:
+            raise LocalLLMServiceError(
+                "Could not connect to Ollama. Ensure Ollama is running and reachable."
+            ) from exc
+
+        if response.status_code >= 400:
+            raise LocalLLMServiceError(
+                f"Ollama resume upgrade failed ({response.status_code}): {response.text}"
+            )
+
+        try:
+            data = response.json()
+        except json.JSONDecodeError as exc:
+            raise LocalLLMServiceError("Ollama returned a non-JSON response.") from exc
+
+        content = data.get("message", {}).get("content") or data.get("response") or ""
+        if not content:
+            raise LocalLLMServiceError("Ollama returned empty content for resume upgrade.")
+
+        return self._load_json(content)
+
     def _load_json(self, raw_text: str) -> dict[str, Any]:
         try:
             parsed = json.loads(raw_text)

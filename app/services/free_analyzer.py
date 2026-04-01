@@ -219,6 +219,68 @@ class FreeResumeAnalyzerService:
             },
         }
 
+    def generate_resume_upgrade(self, resume_text: str, job_description: str) -> dict:
+        analysis = self.generate_structured_analysis(resume_text, job_description)
+        role_focus = self._detect_role(self._normalize_text(job_description))
+        tailored = analysis.get("tailor_my_resume", {})
+        suggested_keywords = tailored.get("suggested_skills_keywords", [])
+        improved_summary = (
+            tailored.get("improved_professional_summary")
+            or analysis.get("resume_summary")
+            or f"Professional targeting {role_focus} opportunities."
+        )
+        improved_bullets = analysis.get("improved_bullets", [])[:5]
+
+        original_snapshot = self._build_original_snapshot(resume_text)
+        updated_snapshot = self._build_updated_snapshot(
+            improved_summary=improved_summary,
+            suggested_keywords=suggested_keywords,
+            improved_bullets=improved_bullets,
+        )
+        score_before = int(analysis.get("match_score", 0))
+        score_after = min(
+            100,
+            max(
+                score_before,
+                score_before + 8 + min(len(analysis.get("missing_skills", [])), 4),
+            ),
+        )
+        latex_resume = self._build_latex_resume(
+            resume_text=resume_text,
+            improved_summary=improved_summary,
+            suggested_keywords=suggested_keywords,
+            improved_bullets=improved_bullets,
+        )
+
+        improvement_summary = (
+            f"This upgraded resume keeps the original profile direction but rewrites it for stronger {role_focus} ATS alignment. "
+            "The draft prioritizes clearer summary language, keyword density, and stronger impact bullets."
+        )
+        key_improvements = self._ordered_unique(
+            [
+                *analysis.get("ats_suggestions", [])[:4],
+                "Rebuilt the resume into an Overleaf-ready LaTeX layout with ATS-friendly section headings.",
+                "Concentrated the strongest evidence into a tighter summary, skills block, and rewritten experience bullets.",
+            ]
+        )[:6]
+
+        latex_notes = [
+            "Review names, dates, and organization titles before submitting because PDF text extraction can flatten original formatting.",
+            "Compile this .tex file in Overleaf and adjust spacing if your resume content is longer than one page.",
+            "If you have exact project names or metrics in the original resume, keep them in the final version for credibility.",
+        ]
+
+        return {
+            "ats_score_before": score_before,
+            "ats_score_after": score_after,
+            "improvement_summary": improvement_summary,
+            "key_improvements": key_improvements,
+            "original_resume_snapshot": original_snapshot,
+            "updated_resume_snapshot": updated_snapshot,
+            "latex_resume": latex_resume,
+            "latex_notes": latex_notes,
+        }
+
     def _normalize_text(self, value: str) -> str:
         return re.sub(r"\s+", " ", value.lower()).strip()
 
@@ -447,3 +509,141 @@ class FreeResumeAnalyzerService:
         if any(term in lower_text for term in ("student", "intern", "fresher", "graduate")):
             return "Entry Level"
         return "Early Career"
+
+    def _build_original_snapshot(self, resume_text: str) -> str:
+        lines = [line.strip() for line in resume_text.splitlines() if line.strip()]
+        if not lines:
+            return "Original resume text could not be summarized."
+
+        preview_lines = lines[:12]
+        return "\n".join(preview_lines)
+
+    def _build_updated_snapshot(
+        self,
+        improved_summary: str,
+        suggested_keywords: list[str],
+        improved_bullets: list[str],
+    ) -> str:
+        parts = [
+            "SUMMARY",
+            improved_summary,
+            "",
+            "KEYWORDS",
+            ", ".join(suggested_keywords[:10]) if suggested_keywords else "Add role-matched ATS keywords here.",
+            "",
+            "EXPERIENCE HIGHLIGHTS",
+            *[f"- {bullet}" for bullet in improved_bullets[:4]],
+        ]
+        return "\n".join(part for part in parts if part is not None).strip()
+
+    def _extract_resume_header(self, resume_text: str) -> tuple[str, list[str]]:
+        lines = [line.strip() for line in resume_text.splitlines() if line.strip()]
+        if not lines:
+            return ("Candidate Name", [])
+
+        name = lines[0][:80]
+        metadata: list[str] = []
+        for line in lines[1:5]:
+            if any(token in line.lower() for token in ("@", "linkedin", "github", "+", "www", "http")):
+                metadata.append(line)
+        return (name, metadata[:2])
+
+    def _latex_escape(self, value: str) -> str:
+        replacements = {
+            "\\": r"\textbackslash{}",
+            "&": r"\&",
+            "%": r"\%",
+            "$": r"\$",
+            "#": r"\#",
+            "_": r"\_",
+            "{": r"\{",
+            "}": r"\}",
+            "~": r"\textasciitilde{}",
+            "^": r"\textasciicircum{}",
+        }
+        escaped = value
+        for raw, replacement in replacements.items():
+            escaped = escaped.replace(raw, replacement)
+        return escaped
+
+    def _build_latex_resume(
+        self,
+        resume_text: str,
+        improved_summary: str,
+        suggested_keywords: list[str],
+        improved_bullets: list[str],
+    ) -> str:
+        name, metadata = self._extract_resume_header(resume_text)
+        education_lines = self._extract_section_lines(
+            resume_text,
+            ("education", "academic background"),
+        )
+        projects_lines = self._extract_section_lines(
+            resume_text,
+            ("projects", "project experience"),
+        )
+
+        header_meta = " $\\vert$ ".join(self._latex_escape(item) for item in metadata) or "Email $\\vert$ LinkedIn $\\vert$ GitHub"
+        bullets_block = "\n".join(
+            f"  \\item {self._latex_escape(bullet)}" for bullet in (improved_bullets or ["Add your strongest experience bullets here."])
+        )
+        education_block = "\n".join(
+            f"  \\item {self._latex_escape(line)}" for line in (education_lines[:4] or ["Add your degree, institution, and graduation details here."])
+        )
+        projects_block = "\n".join(
+            f"  \\item {self._latex_escape(line)}" for line in (projects_lines[:4] or improved_bullets[:3] or ["Add project evidence that supports the target role."])
+        )
+        skills_line = self._latex_escape(", ".join(suggested_keywords[:12])) or "Role-aligned skills"
+
+        return (
+            "\\documentclass[11pt]{article}\n"
+            "\\usepackage[margin=0.7in]{geometry}\n"
+            "\\usepackage[hidelinks]{hyperref}\n"
+            "\\usepackage{enumitem}\n"
+            "\\setlength{\\parindent}{0pt}\n"
+            "\\pagenumbering{gobble}\n\n"
+            "\\begin{document}\n"
+            f"{{\\LARGE \\textbf{{{self._latex_escape(name)}}}}}\\\\\n"
+            f"{header_meta}\\\\[0.6em]\n\n"
+            "\\section*{Professional Summary}\n"
+            f"{self._latex_escape(improved_summary)}\n\n"
+            "\\section*{Skills}\n"
+            f"{skills_line}\n\n"
+            "\\section*{Experience Highlights}\n"
+            "\\begin{itemize}[leftmargin=1.2em]\n"
+            f"{bullets_block}\n"
+            "\\end{itemize}\n\n"
+            "\\section*{Projects}\n"
+            "\\begin{itemize}[leftmargin=1.2em]\n"
+            f"{projects_block}\n"
+            "\\end{itemize}\n\n"
+            "\\section*{Education}\n"
+            "\\begin{itemize}[leftmargin=1.2em]\n"
+            f"{education_block}\n"
+            "\\end{itemize}\n"
+            "\\end{document}\n"
+        )
+
+    def _extract_section_lines(self, resume_text: str, aliases: tuple[str, ...]) -> list[str]:
+        lines = [line.strip() for line in resume_text.splitlines()]
+        collected: list[str] = []
+        inside_section = False
+        for line in lines:
+            normalized = re.sub(r"[^a-z ]", "", line.lower()).strip()
+            if any(alias in normalized for alias in aliases):
+                inside_section = True
+                continue
+            if inside_section and normalized in {
+                "summary",
+                "skills",
+                "technical skills",
+                "experience",
+                "professional experience",
+                "projects",
+                "education",
+                "certifications",
+            }:
+                break
+            if inside_section and line.strip():
+                collected.append(line.strip())
+        return collected

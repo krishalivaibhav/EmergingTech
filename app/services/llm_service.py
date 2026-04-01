@@ -148,6 +148,71 @@ class LLMService:
 
         return self._load_json(content)
 
+    def generate_resume_upgrade(self, resume_text: str, job_description: str) -> dict[str, Any]:
+        system_prompt = dedent(
+            """
+            You are an expert ATS recruiter and resume writer.
+            Rebuild the candidate's resume into a stronger ATS-optimized version using the same underlying evidence from the original resume.
+            Return valid JSON only.
+
+            Rules:
+            - Do not use markdown.
+            - Return only JSON.
+            - Do not invent employers, degrees, dates, projects, or achievements not supported by the resume text.
+            - You may rewrite, reorder, and sharpen content for ATS fit.
+            - ats_score_after must be greater than or equal to ats_score_before.
+            - key_improvements and latex_notes must be arrays of short strings, not objects.
+            - improved_experience_bullets must be an array of short bullet strings.
+            - targeted_keywords must be an array of concise ATS keywords.
+            - improved_summary must be one concise paragraph.
+            - Keep the JSON compact. Do not include long full-resume snapshots.
+
+            Required JSON shape:
+            {
+              "ats_score_before": 0,
+              "ats_score_after": 0,
+              "improvement_summary": "",
+              "key_improvements": [],
+              "improved_summary": "",
+              "targeted_keywords": [],
+              "improved_experience_bullets": [],
+              "latex_notes": []
+            }
+            """
+        ).strip()
+
+        user_prompt = dedent(
+            f"""
+            Target Role / Job Context:
+            {job_description}
+
+            Candidate Resume:
+            {resume_text}
+            """
+        ).strip()
+
+        try:
+            completion = self.client.chat.completions.create(
+                model=self.model,
+                temperature=0.2,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+        except Exception as exc:  # pragma: no cover - network/API failures
+            raise LLMServiceError(f"LLM resume upgrade failed: {exc}") from exc
+
+        if not completion.choices:
+            raise LLMServiceError("LLM returned no choices for resume upgrade.")
+
+        content = completion.choices[0].message.content
+        if not content:
+            raise LLMServiceError("LLM returned empty content for resume upgrade.")
+
+        return self._load_json(content)
+
     def _load_json(self, raw_text: str) -> dict[str, Any]:
         try:
             parsed = json.loads(raw_text)
