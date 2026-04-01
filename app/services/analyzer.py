@@ -3,6 +3,7 @@ from typing import Any
 
 from app.models.schemas import CVScanResponse, AnalysisResponse, RoleSuggestionResponse, TailorMyResume
 from app.services.free_analyzer import FreeResumeAnalyzerService
+from app.services.groq_service import GroqConfigurationError, GroqService, GroqServiceError
 from app.services.llm_service import LLMConfigurationError, LLMService, LLMServiceError
 from app.services.local_llm_service import (
     LocalLLMConfigurationError,
@@ -15,16 +16,20 @@ class ResumeJobAnalyzer:
     def __init__(
         self,
         llm_service: LLMService | None = None,
+        groq_service: GroqService | None = None,
         local_llm_service: LocalLLMService | None = None,
         free_service: FreeResumeAnalyzerService | None = None,
         mode: str | None = None,
     ) -> None:
         self.llm_service = llm_service
+        self.groq_service = groq_service
         self.local_llm_service = local_llm_service
         self.free_service = free_service or FreeResumeAnalyzerService()
         configured_mode = (mode or os.getenv("ANALYZER_MODE", "auto")).strip().lower()
         self.mode = (
-            configured_mode if configured_mode in {"auto", "openai", "local_llm", "free"} else "auto"
+            configured_mode
+            if configured_mode in {"auto", "openai", "groq", "local_llm", "free"}
+            else "auto"
         )
 
     def analyze(self, resume_text: str, job_description: str) -> AnalysisResponse:
@@ -74,6 +79,9 @@ class ResumeJobAnalyzer:
         if self.mode == "openai":
             return self._analyze_with_openai(resume_text, job_description)
 
+        if self.mode == "groq":
+            return self._analyze_with_groq(resume_text, job_description)
+
         if self.mode == "local_llm":
             return self._analyze_with_local_llm(resume_text, job_description)
 
@@ -81,6 +89,12 @@ class ResumeJobAnalyzer:
             try:
                 return self._analyze_with_openai(resume_text, job_description)
             except (LLMConfigurationError, LLMServiceError):
+                pass
+
+        if os.getenv("GROQ_API_KEY", "").strip():
+            try:
+                return self._analyze_with_groq(resume_text, job_description)
+            except (GroqConfigurationError, GroqServiceError):
                 pass
 
         try:
@@ -95,6 +109,9 @@ class ResumeJobAnalyzer:
         if self.mode == "openai":
             return self._suggest_roles_with_openai(resume_text)
 
+        if self.mode == "groq":
+            return self._suggest_roles_with_groq(resume_text)
+
         if self.mode == "local_llm":
             return self._suggest_roles_with_local_llm(resume_text)
 
@@ -102,6 +119,12 @@ class ResumeJobAnalyzer:
             try:
                 return self._suggest_roles_with_openai(resume_text)
             except (LLMConfigurationError, LLMServiceError):
+                pass
+
+        if os.getenv("GROQ_API_KEY", "").strip():
+            try:
+                return self._suggest_roles_with_groq(resume_text)
+            except (GroqConfigurationError, GroqServiceError):
                 pass
 
         try:
@@ -127,6 +150,15 @@ class ResumeJobAnalyzer:
             job_description=job_description,
         )
 
+    def _analyze_with_groq(self, resume_text: str, job_description: str) -> dict[str, Any]:
+        if self.groq_service is None:
+            self.groq_service = GroqService()
+
+        return self.groq_service.generate_structured_analysis(
+            resume_text=resume_text,
+            job_description=job_description,
+        )
+
     def _suggest_roles_with_local_llm(self, resume_text: str) -> dict[str, Any]:
         if self.local_llm_service is None:
             self.local_llm_service = LocalLLMService()
@@ -138,6 +170,12 @@ class ResumeJobAnalyzer:
             self.llm_service = LLMService()
 
         return self.llm_service.generate_role_suggestions(resume_text=resume_text)
+
+    def _suggest_roles_with_groq(self, resume_text: str) -> dict[str, Any]:
+        if self.groq_service is None:
+            self.groq_service = GroqService()
+
+        return self.groq_service.generate_role_suggestions(resume_text=resume_text)
 
     def _normalize_result(self, data: dict[str, Any]) -> dict[str, Any]:
         tailor_data = data.get("tailor_my_resume", {})

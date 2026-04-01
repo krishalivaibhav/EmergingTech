@@ -4,6 +4,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.models.schemas import AnalysisResponse, CVScanResponse, RoleSuggestionResponse
 from app.services.analyzer import ResumeJobAnalyzer
+from app.services.groq_service import GroqConfigurationError, GroqServiceError
 from app.services.llm_service import LLMConfigurationError, LLMServiceError
 from app.services.local_llm_service import LocalLLMConfigurationError, LocalLLMServiceError
 from app.services.pdf_parser import PDFParsingError, extract_text_from_pdf_bytes
@@ -94,9 +95,9 @@ async def analyze_resume(
             resume_text=combined_resume,
             job_description=effective_job_description,
         )
-    except (LLMConfigurationError, LocalLLMConfigurationError) as exc:
+    except (LLMConfigurationError, GroqConfigurationError, LocalLLMConfigurationError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    except (LLMServiceError, LocalLLMServiceError) as exc:
+    except (LLMServiceError, GroqServiceError, LocalLLMServiceError) as exc:
         raise HTTPException(
             status_code=502,
             detail=f"AI analysis failed. Please retry. ({exc})",
@@ -113,9 +114,9 @@ async def suggest_roles(
     try:
         analyzer = get_analyzer()
         return analyzer.suggest_roles(resume_text=combined_resume)
-    except (LLMConfigurationError, LocalLLMConfigurationError) as exc:
+    except (LLMConfigurationError, GroqConfigurationError, LocalLLMConfigurationError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    except (LLMServiceError, LocalLLMServiceError) as exc:
+    except (LLMServiceError, GroqServiceError, LocalLLMServiceError) as exc:
         raise HTTPException(
             status_code=502,
             detail=f"Role suggestion failed. Please retry. ({exc})",
@@ -132,9 +133,9 @@ async def scan_cv(
     try:
         analyzer = get_analyzer()
         return analyzer.scan_cv(resume_text=combined_resume)
-    except (LLMConfigurationError, LocalLLMConfigurationError) as exc:
+    except (LLMConfigurationError, GroqConfigurationError, LocalLLMConfigurationError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    except (LLMServiceError, LocalLLMServiceError) as exc:
+    except (LLMServiceError, GroqServiceError, LocalLLMServiceError) as exc:
         raise HTTPException(
             status_code=502,
             detail=f"CV scan failed. Please retry. ({exc})",

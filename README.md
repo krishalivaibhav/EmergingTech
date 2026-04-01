@@ -33,7 +33,7 @@ This tool acts like a recruiter + ATS assistant. Users can upload a PDF resume (
 
 - Backend: FastAPI
 - Frontend: Jinja templates + vanilla HTML/CSS/JS
-- Analysis Engine: Local free LLM via Ollama + heuristic fallback + optional OpenAI API
+- Analysis Engine: Groq API or local free LLM via Ollama + heuristic fallback + optional OpenAI API
 - PDF Parsing: `pypdf`
 - Deployment: Docker + Uvicorn
 
@@ -51,6 +51,7 @@ This tool acts like a recruiter + ATS assistant. Users can upload a PDF resume (
 │   ├── services
 │   │   ├── analyzer.py
 │   │   ├── free_analyzer.py
+│   │   ├── groq_service.py
 │   │   ├── llm_service.py
 │   │   ├── local_llm_service.py
 │   │   └── pdf_parser.py
@@ -92,9 +93,11 @@ cp .env.example .env
 Then update `.env`:
 
 ```env
-ANALYZER_MODE=local_llm
+ANALYZER_MODE=free
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
+GROQ_API_KEY=
+GROQ_MODEL=llama-3.1-8b-instant
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=llama3.1:8b
 OLLAMA_TIMEOUT_SECONDS=120
@@ -102,10 +105,30 @@ OLLAMA_TIMEOUT_SECONDS=120
 
 Mode options:
 
-- `ANALYZER_MODE=local_llm` (recommended): use real local LLM via Ollama (free, no API key).
-- `ANALYZER_MODE=auto`: try OpenAI if key is set, then local LLM, then heuristic fallback.
+- `ANALYZER_MODE=local_llm`: use real local LLM via Ollama (free, no API key).
+- `ANALYZER_MODE=groq`: use Groq-hosted LLM analysis with `GROQ_API_KEY`.
+- `ANALYZER_MODE=auto`: try OpenAI if key is set, then Groq if key is set, then local LLM, then heuristic fallback.
 - `ANALYZER_MODE=free`: always use free local analysis (no API key).
 - `ANALYZER_MODE=openai`: require OpenAI key and use model-based analysis.
+
+### Run With Groq
+
+1. Add your API key to `.env`:
+
+```env
+ANALYZER_MODE=groq
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL=llama-3.1-8b-instant
+OPENAI_API_KEY=
+```
+
+2. Run the FastAPI app:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+This uses Groq as the structured LLM backend and avoids running Ollama locally.
 
 ### Run With A Real Free LLM (Ollama)
 
