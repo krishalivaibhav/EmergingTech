@@ -10,9 +10,9 @@ router = APIRouter()
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
     return request.app.state.templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
+        request=request,
+        name="index.html",
+        context={
             "asset_version": int(datetime.now().timestamp()),
             "year": datetime.now().year,
         },
