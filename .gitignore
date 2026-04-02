@@ -5,6 +5,27 @@ __pycache__/
 venv/
 .pytest_cache/
 .mypy_cache/
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.run.xml
+*.synctex.gz
+
+# Generated report exports
+*.docx
+
+# Local experiment inputs/outputs
+Vaibhav_s_resume(updated).pdf
+ML_Report.pdf
+capture_report_screenshots.py
+
 .env
 .env.*
 !.env.example

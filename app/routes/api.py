@@ -242,3 +242,62 @@ async def compile_latex_preview_image(payload: LatexCompileRequest) -> Response:
 
     headers = {"Content-Disposition": 'inline; filename="updated-resume-preview.png"'}
     return Response(content=png_bytes, media_type="image/png", headers=headers)
+
+
+# ============================================================================
+# ML-POWERED ANALYSIS ENDPOINTS (scikit-learn TF-IDF + Cosine Similarity)
+# ============================================================================
+
+@router.post("/ml-insights")
+async def get_ml_insights(
+    resume: str = Form(...),
+    job_description: str = Form(default=""),
+    role: str = Form(default="ml_engineer"),
+) -> dict:
+    """
+    Get ML-based resume analysis using scikit-learn models.
+    
+    ML Pipeline:
+    - TF-IDF Vectorization + Logistic Regression for quality scoring
+    - Cosine Similarity for resume-job matching
+    - Feature extraction for NLP analysis
+    
+    Returns: ML predictions, confidence scores, and feature importance
+    """
+    analyzer = get_analyzer()
+    insights = analyzer.get_ml_insights(
+        resume_text=resume,
+        job_description=job_description,
+        role=role
+    )
+    return insights
+
+
+@router.post("/ml-quality-score")
+async def get_ml_quality_score(resume: str = Form(...)) -> dict:
+    """
+    Get ML-predicted resume quality score using trained Logistic Regression classifier.
+    
+    ML Model: TF-IDF Vectorizer + Logistic Regression
+    Returns: Quality score (0-100), confidence, quality level, top keywords
+    """
+    analyzer = get_analyzer()
+    result = analyzer.get_ml_quality_score(resume)
+    return result
+
+
+@router.post("/ml-skill-similarity")
+async def get_ml_skill_similarity(
+    resume: str = Form(...),
+    job_description: str = Form(...),
+    role: str = Form(default="ml_engineer"),
+) -> dict:
+    """
+    Get semantic similarity score and skill matching using TF-IDF + Cosine Similarity.
+    
+    ML Model: TF-IDF Vectorizer + Cosine Similarity Matrix
+    Returns: Semantic similarity score, skill match percentage, matched/missing skills
+    """
+    analyzer = get_analyzer()
+    result = analyzer.get_ml_skill_similarity(resume, job_description, role)
+    return result

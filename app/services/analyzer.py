@@ -17,6 +17,7 @@ from app.services.local_llm_service import (
     LocalLLMServiceError,
 )
 from app.services.resume_template_service import ResumeTemplateService
+from app.services.ml_analyzer import get_ml_analyzer
 
 
 class ResumeJobAnalyzer:
@@ -34,6 +35,7 @@ class ResumeJobAnalyzer:
         self.local_llm_service = local_llm_service
         self.free_service = free_service or FreeResumeAnalyzerService()
         self.resume_template_service = resume_template_service or ResumeTemplateService()
+        self.ml_analyzer = get_ml_analyzer()  # Initialize ML analyzer (scikit-learn models)
         configured_mode = (mode or os.getenv("ANALYZER_MODE", "auto")).strip().lower()
         self.mode = (
             configured_mode
@@ -412,3 +414,84 @@ class ResumeJobAnalyzer:
     @staticmethod
     def _estimate_upgrade_delta(key_improvements: list[str]) -> int:
         return min(12, 4 + min(len(key_improvements), 6))
+
+    # ============================================================================
+    # ML-POWERED ANALYSIS METHODS (scikit-learn TF-IDF + Cosine Similarity)
+    # ============================================================================
+
+    def get_ml_insights(self, resume_text: str, job_description: str = "", role: str = "ml_engineer") -> dict[str, Any]:
+        """
+        Get ML-based insights using scikit-learn models.
+        Combines TF-IDF vectorization, cosine similarity, and ML classification.
+        
+        ML Pipeline:
+        - TF-IDF Vectorization for feature extraction
+        - Logistic Regression for resume quality classification
+        - Cosine Similarity for semantic matching
+        """
+        try:
+            insights = {
+                "ml_enabled": True,
+                "models_used": [
+                    "TF-IDF Vectorizer (scikit-learn)",
+                    "Logistic Regression Classifier",
+                    "Cosine Similarity Matrix"
+                ]
+            }
+            
+            # 1. ML-based resume quality prediction
+            quality_result = self.ml_analyzer.predict_resume_quality(resume_text)
+            if quality_result:
+                insights["quality_prediction"] = quality_result
+            
+            # 2. ML-based skill matching using cosine similarity
+            if job_description:
+                skill_match_result = self.ml_analyzer.compute_skill_matching(
+                    resume_text=resume_text,
+                    job_description=job_description,
+                    role=role
+                )
+                if skill_match_result:
+                    insights["skill_matching"] = skill_match_result
+            
+            # 3. Feature extraction for NLP analysis
+            features_result = self.ml_analyzer.extract_features(resume_text)
+            if features_result:
+                insights["feature_extraction"] = features_result
+            
+            return insights
+            
+        except Exception as e:
+            return {
+                "ml_enabled": False,
+                "error": str(e),
+                "note": "ML analysis unavailable, falling back to heuristic methods"
+            }
+    
+    def get_ml_quality_score(self, resume_text: str) -> dict[str, Any]:
+        """
+        Get ML-predicted resume quality score using trained classifier.
+        Uses TF-IDF + Logistic Regression pipeline.
+        """
+        try:
+            return self.ml_analyzer.predict_resume_quality(resume_text)
+        except Exception as e:
+            return {
+                "error": str(e),
+                "quality_score": None,
+                "method": "ml_classifier_error"
+            }
+    
+    def get_ml_skill_similarity(self, resume_text: str, job_description: str, role: str = "ml_engineer") -> dict[str, Any]:
+        """
+        Get TF-IDF + Cosine Similarity based skill matching.
+        Returns semantic similarity and skill overlap metrics.
+        """
+        try:
+            return self.ml_analyzer.compute_skill_matching(resume_text, job_description, role)
+        except Exception as e:
+            return {
+                "error": str(e),
+                "semantic_similarity": None,
+                "method": "ml_similarity_error"
+            }
