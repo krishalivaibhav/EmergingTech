@@ -22,6 +22,9 @@ This tool acts like a recruiter + ATS assistant. Users can upload a PDF resume (
 - Resume-based role discovery (`current_status` + suggested roles)
 - Role selector workflow with optional role-based JD templating
 - Large editable job description input
+- Resume upgrade workflow with old-vs-new snapshot comparison
+- Overleaf-ready LaTeX resume generation
+- PDF preview image rendering and PDF/LaTeX download actions
 - Free built-in ATS-style analyzer (no API key required)
 - Optional OpenAI-powered structured JSON analysis
 - Clean, responsive UI with result cards
@@ -35,6 +38,7 @@ This tool acts like a recruiter + ATS assistant. Users can upload a PDF resume (
 - Frontend: Jinja templates + vanilla HTML/CSS/JS
 - Analysis Engine: Groq API or local free LLM via Ollama + heuristic fallback + optional OpenAI API
 - PDF Parsing: `pypdf`
+- Resume Output: LaTeX generation + PDF compilation/preview
 - Deployment: Docker + Uvicorn
 
 ## Project Structure
@@ -52,9 +56,12 @@ This tool acts like a recruiter + ATS assistant. Users can upload a PDF resume (
 │   │   ├── analyzer.py
 │   │   ├── free_analyzer.py
 │   │   ├── groq_service.py
+│   │   ├── latex_compiler.py
 │   │   ├── llm_service.py
 │   │   ├── local_llm_service.py
-│   │   └── pdf_parser.py
+│   │   ├── pdf_parser.py
+│   │   ├── pdf_preview_service.py
+│   │   └── resume_template_service.py
 │   ├── static
 │   │   ├── css
 │   │   │   └── styles.css
@@ -270,6 +277,60 @@ Response shape:
 }
 ```
 
+### `POST /api/resume-upgrade`
+
+Accepts `multipart/form-data`:
+
+- `resume_file` (optional, PDF only)
+- `resume_text` (optional)
+- `job_description` (optional if `target_role` is provided)
+- `target_role` (required for this endpoint)
+- `baseline_score` (optional integer from CV scan)
+
+At least one of `resume_file` or `resume_text` must be provided.
+
+Response shape:
+
+```json
+{
+  "ats_score_before": 68,
+  "ats_score_after": 79,
+  "improvement_summary": "Rewrote summary and bullets for stronger ATS alignment...",
+  "key_improvements": [
+    "Added clearer metric-driven bullets",
+    "Improved role keyword coverage"
+  ],
+  "original_resume_snapshot": "...",
+  "updated_resume_snapshot": "...",
+  "latex_resume": "\\documentclass...",
+  "latex_notes": ["Review dates and company names before submission."]
+}
+```
+
+### `POST /api/compile-latex`
+
+Accepts JSON body:
+
+```json
+{
+  "latex_resume": "..."
+}
+```
+
+Returns compiled PDF (`application/pdf`) for inline display/download.
+
+### `POST /api/compile-latex-preview-image`
+
+Accepts JSON body:
+
+```json
+{
+  "latex_resume": "..."
+}
+```
+
+Returns first-page PNG preview (`image/png`) for in-app visual comparison.
+
 ## Prompting Approach
 
 When OpenAI mode is enabled, the app uses a structured internal prompt that instructs the model to behave as an expert ATS evaluator and recruiter, returning strict JSON with actionable recommendations.
@@ -286,6 +347,9 @@ In `free` mode, the app uses deterministic ATS heuristics (skill overlap, keywor
 - Empty/unreadable PDF text
 - Missing `OPENAI_API_KEY` when `ANALYZER_MODE=openai`
 - Upstream LLM failures or malformed responses
+- Missing target role on resume upgrade requests
+- LaTeX compiler not available / compilation failures
+- PDF preview renderer not available
 
 ## Deployment Notes
 
@@ -303,4 +367,6 @@ In `free` mode, the app uses deterministic ATS heuristics (skill overlap, keywor
 3. Click **Scan CV** to get CV score, profile summary, and suggested roles.
 4. (Optional) Open **Job Match Tools**, pick a role, and paste a specific JD.
 5. Click **Analyze Selected Role** for role-targeted matching output.
-6. Iterate on resume copy and re-run CV scan/analysis.
+6. Click **Generate Resume Difference** to compare old vs updated resume snapshots.
+7. Review generated LaTeX, preview image, and improvement notes.
+8. Download PDF or LaTeX and iterate with another scan/analysis cycle.
