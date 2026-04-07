@@ -68,14 +68,22 @@ class ResumeTemplateService:
         )
 
         projects = self._parse_project_entries(original_sections.get("Projects", []))
+        updated_projects = self._apply_updated_bullets(
+            original_entries=copy.deepcopy(projects),
+            improved_bullets=self._extract_improved_project_bullets(upgrade_data, updated_sections),
+        )
         education = self._parse_education_entries(original_sections.get("Education", []))
         certifications = self._clean_section_lines(original_sections.get("Certifications", []))
         skills = self._merge_skill_lines(
             original_sections.get("Skills", []),
             self._extract_keywords_from_upgrade(upgrade_data, updated_sections),
+            self._extract_improved_skill_lines(upgrade_data),
         )
         summary = self._extract_summary_from_upgrade(upgrade_data, updated_sections)
-        include_summary = "Summary" in original_section_order
+        include_summary = bool(summary)
+        updated_section_order = list(original_section_order)
+        if include_summary and "Summary" not in updated_section_order:
+            updated_section_order = ["Summary", *updated_section_order]
 
         return {
             "original_resume_snapshot": self._build_original_snapshot(
@@ -93,22 +101,22 @@ class ResumeTemplateService:
                 contact_lines=contact_lines,
                 summary=summary if include_summary else "",
                 experience_entries=updated_experience,
-                projects=projects,
+                projects=updated_projects,
                 skills=skills,
                 education=education,
                 certifications=certifications,
-                section_order=original_section_order,
+                section_order=updated_section_order,
             ),
             "latex_resume": self._build_reference_latex(
                 name=name,
                 contact_lines=contact_lines,
                 summary=summary if include_summary else "",
                 experience_entries=updated_experience,
-                projects=projects,
+                projects=updated_projects,
                 skills=skills,
                 education=education,
                 certifications=certifications,
-                section_order=original_section_order,
+                section_order=updated_section_order,
             ),
         }
 
@@ -208,6 +216,25 @@ class ResumeTemplateService:
         if bullets:
             return bullets[:8]
         return self._extract_highlight_bullets(updated_sections)
+
+    def _extract_improved_project_bullets(
+        self,
+        upgrade_data: dict[str, object],
+        updated_sections: dict[str, list[str]],
+    ) -> list[str]:
+        bullets = self._normalize_string_list(upgrade_data.get("improved_project_bullets"))
+        if bullets:
+            return bullets[:12]
+        candidates = updated_sections.get("Projects", [])
+        extracted: list[str] = []
+        for line in candidates:
+            cleaned = re.sub(r"^[-•*]\s*", "", line).strip()
+            if cleaned:
+                extracted.append(cleaned)
+        return extracted[:12]
+
+    def _extract_improved_skill_lines(self, upgrade_data: dict[str, object]) -> list[str]:
+        return self._normalize_string_list(upgrade_data.get("improved_skills_lines"))[:8]
 
     def _normalize_string_list(self, value: object) -> list[str]:
         if value is None:
@@ -319,24 +346,20 @@ class ResumeTemplateService:
             )
         return entries
 
-    def _apply_updated_bullets(
-        self,
-        original_entries: list[ExperienceEntry],
-        improved_bullets: list[str],
-    ) -> list[ExperienceEntry]:
+    def _apply_updated_bullets(self, original_entries: list, improved_bullets: list[str]) -> list:
         if not improved_bullets:
-            return original_entries or [ExperienceEntry(title="Experience Highlights")]
+            return original_entries
 
         if not original_entries:
-            return [ExperienceEntry(title="Experience Highlights", bullets=improved_bullets)]
+            return original_entries
 
         remaining = improved_bullets[:]
         for entry in original_entries:
-            slot_count = max(1, len(entry.bullets))
+            slot_count = max(1, len(getattr(entry, "bullets", [])))
             replacement = remaining[:slot_count]
             if replacement:
                 remaining = remaining[slot_count:]
-                if entry.bullets:
+                if getattr(entry, "bullets", []):
                     entry.bullets = replacement + entry.bullets[len(replacement):]
                 else:
                     entry.bullets = replacement
@@ -426,9 +449,50 @@ class ResumeTemplateService:
             return (left.strip(), right.strip())
         return (text, "")
 
-    def _merge_skill_lines(self, original_skill_lines: list[str], keywords: list[str]) -> list[str]:
+    def _merge_skill_lines(
+        self,
+        original_skill_lines: list[str],
+        keywords: list[str],
+        improved_skill_lines: list[str] | None = None,
+    ) -> list[str]:
+        if improved_skill_lines:
+            return self._clean_section_lines(improved_skill_lines)
+
         cleaned = self._clean_section_lines(original_skill_lines)
-        return cleaned
+        if not keywords:
+            return cleaned
+
+        keyword_pool = [keyword for keyword in keywords if keyword]
+        if not keyword_pool:
+            return cleaned
+
+        updated_lines = cleaned[:]
+        appended = False
+        for index, line in enumerate(updated_lines):
+            if ":" not in line:
+                continue
+            label, values = line.split(":", 1)
+            existing = [item.strip() for item in values.split(",") if item.strip()]
+            merged = self._ordered_unique([*existing, *keyword_pool])
+            updated_lines[index] = f"{label.strip()}: {', '.join(merged[:14])}"
+            appended = True
+            break
+
+        if not appended:
+            updated_lines.append(f"Target Keywords: {', '.join(self._ordered_unique(keyword_pool)[:14])}")
+
+        return updated_lines
+
+    def _ordered_unique(self, items: list[str]) -> list[str]:
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for item in items:
+            key = item.strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            ordered.append(item.strip())
+        return ordered
 
     def _build_original_snapshot(
         self,

@@ -16,6 +16,7 @@ class PDFPreviewService:
     def __init__(self) -> None:
         self.pdftoppm_path = shutil.which("pdftoppm")
         self.sips_path = shutil.which("sips")
+        self.render_dpi = 144
 
     def render_first_page_png(self, pdf_bytes: bytes) -> bytes:
         if not pdf_bytes:
@@ -36,7 +37,15 @@ class PDFPreviewService:
         if self.pdftoppm_path:
             output_base = workdir / "preview"
             result = subprocess.run(
-                [self.pdftoppm_path, "-png", "-singlefile", str(pdf_path), str(output_base)],
+                [
+                    self.pdftoppm_path,
+                    "-r",
+                    str(self.render_dpi),
+                    "-png",
+                    "-singlefile",
+                    str(pdf_path),
+                    str(output_base),
+                ],
                 capture_output=True,
                 text=True,
                 check=False,

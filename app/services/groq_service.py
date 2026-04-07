@@ -158,10 +158,13 @@ class GroqService:
             - Return only JSON.
             - Do not invent employers, degrees, dates, projects, or achievements not supported by the resume text.
             - You may rewrite, reorder, and sharpen content for ATS fit.
+            - Do not return a near-copy of the original resume. Make meaningful wording improvements across the major experience and project sections.
             - ats_score_before and ats_score_after must be integers from 0 to 100, not decimals.
             - ats_score_after must be greater than or equal to ats_score_before.
             - key_improvements and latex_notes must be arrays of short strings, not objects.
-            - improved_experience_bullets must be an array of short bullet strings.
+            - improved_experience_bullets must be an array of rewritten experience bullet strings covering the main work entries.
+            - improved_project_bullets must be an array of rewritten project bullet strings covering the main projects.
+            - improved_skills_lines must be an array of concise skills-section lines like "Languages: Python, SQL".
             - targeted_keywords must be an array of concise ATS keywords.
             - improved_summary must be one concise paragraph.
             - Keep the JSON compact. Do not include long full-resume snapshots.
@@ -175,6 +178,8 @@ class GroqService:
               "improved_summary": "",
               "targeted_keywords": [],
               "improved_experience_bullets": [],
+              "improved_project_bullets": [],
+              "improved_skills_lines": [],
               "latex_notes": []
             }
             """

@@ -43,6 +43,93 @@ class AnalysisResponse(BaseModel):
         default_factory=TailorMyResume,
         description="Extra resume tailoring suggestions for profile optimization.",
     )
+    live_market_jobs: list["LiveMarketJob"] = Field(
+        default_factory=list,
+        description="Live role-matched market jobs fetched from a public jobs source.",
+    )
+    live_market_jobs_query: str = Field(
+        default="",
+        description="Role query used to fetch live market jobs.",
+    )
+    live_market_jobs_source_name: str = Field(
+        default="",
+        description="Source name for the live jobs feed.",
+    )
+    live_market_jobs_source_url: str = Field(
+        default="",
+        description="Source URL for the live jobs feed.",
+    )
+    live_market_jobs_note: str = Field(
+        default="",
+        description="Attribution or caveat for the live jobs feed.",
+    )
+    live_market_jobs_error: str = Field(
+        default="",
+        description="Non-fatal live jobs lookup error, if any.",
+    )
+    live_market_jobs_page: int = Field(
+        default=1,
+        ge=1,
+        description="Current page index for the live jobs result set.",
+    )
+    live_market_jobs_has_more: bool = Field(
+        default=False,
+        description="Whether more live jobs are available for the current search.",
+    )
+
+
+class LiveMarketJob(BaseModel):
+    title: str = Field(default="", description="Live market job title.")
+    company_name: str = Field(default="", description="Hiring company name.")
+    location_summary: str = Field(default="", description="Remote/location summary.")
+    seniority: str = Field(default="", description="Seniority label from the source.")
+    employment_type: str = Field(default="", description="Employment type from the source.")
+    salary_summary: str = Field(default="", description="Human-readable salary summary if available.")
+    excerpt: str = Field(default="", description="Short job excerpt.")
+    application_link: str = Field(default="", description="Direct application or listing URL.")
+    source_name: str = Field(default="", description="Source label for this job listing.")
+    source_url: str = Field(default="", description="Source URL for this job listing.")
+    published_at: str = Field(default="", description="Publication timestamp from the source.")
+
+
+class LiveMarketJobsResponse(BaseModel):
+    live_market_jobs: list[LiveMarketJob] = Field(
+        default_factory=list,
+        description="Live role-matched market jobs fetched from a public jobs source.",
+    )
+    live_market_jobs_query: str = Field(
+        default="",
+        description="Role query used to fetch live market jobs.",
+    )
+    live_market_jobs_source_name: str = Field(
+        default="",
+        description="Source name for the live jobs feed.",
+    )
+    live_market_jobs_source_url: str = Field(
+        default="",
+        description="Source URL for the live jobs feed.",
+    )
+    live_market_jobs_note: str = Field(
+        default="",
+        description="Attribution or caveat for the live jobs feed.",
+    )
+    live_market_jobs_error: str = Field(
+        default="",
+        description="Non-fatal live jobs lookup error, if any.",
+    )
+    live_market_jobs_page: int = Field(
+        default=1,
+        ge=1,
+        description="Current page index for the live jobs result set.",
+    )
+    live_market_jobs_has_more: bool = Field(
+        default=False,
+        description="Whether more live jobs are available for the current search.",
+    )
+    resolved_location_label: str = Field(
+        default="",
+        description="Resolved user location label used for the job search.",
+    )
 
 
 class RoleSuggestionResponse(BaseModel):

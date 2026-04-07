@@ -230,6 +230,11 @@ class FreeResumeAnalyzerService:
             or f"Professional targeting {role_focus} opportunities."
         )
         improved_bullets = analysis.get("improved_bullets", [])[:5]
+        improved_project_bullets = tailored.get("stronger_project_bullets", [])[:6]
+        improved_skills_lines = self._build_improved_skills_lines(
+            resume_text=resume_text,
+            suggested_keywords=suggested_keywords,
+        )
 
         original_snapshot = self._build_original_snapshot(resume_text)
         updated_snapshot = self._build_updated_snapshot(
@@ -275,11 +280,38 @@ class FreeResumeAnalyzerService:
             "ats_score_after": score_after,
             "improvement_summary": improvement_summary,
             "key_improvements": key_improvements,
+            "improved_summary": improved_summary,
+            "targeted_keywords": suggested_keywords,
+            "improved_experience_bullets": improved_bullets,
+            "improved_project_bullets": improved_project_bullets,
+            "improved_skills_lines": improved_skills_lines,
             "original_resume_snapshot": original_snapshot,
             "updated_resume_snapshot": updated_snapshot,
             "latex_resume": latex_resume,
             "latex_notes": latex_notes,
         }
+
+    def _build_improved_skills_lines(self, resume_text: str, suggested_keywords: list[str]) -> list[str]:
+        lines = [line.strip() for line in resume_text.splitlines() if line.strip()]
+        skill_lines: list[str] = []
+        capture = False
+        for line in lines:
+            normalized = line.lower().strip()
+            if normalized == "skills":
+                capture = True
+                continue
+            if capture and re.fullmatch(r"[A-Za-z ]+", line.strip()) and normalized != "skills":
+                break
+            if capture and ":" in line:
+                skill_lines.append(line.strip())
+
+        if skill_lines:
+            return skill_lines[:5]
+
+        if suggested_keywords:
+            return [f"Target Keywords: {', '.join(suggested_keywords[:10])}"]
+
+        return []
 
     def _normalize_text(self, value: str) -> str:
         return re.sub(r"\s+", " ", value.lower()).strip()

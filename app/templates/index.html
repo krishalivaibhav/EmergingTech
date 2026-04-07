@@ -169,6 +169,40 @@
         </div>
       </article>
 
+      <article id="live-jobs-card" class="panel card hidden">
+        <div class="live-jobs-head">
+          <div>
+            <h3>Live Jobs For This Role</h3>
+            <p id="live-jobs-note" class="body-copy"></p>
+          </div>
+          <div class="live-jobs-source">
+            <span id="live-jobs-query" class="snapshot-meta"></span>
+            <a id="live-jobs-source-link" class="live-jobs-link hidden" href="#" target="_blank" rel="noreferrer">View Source</a>
+          </div>
+        </div>
+        <div class="job-location-tools">
+          <label for="job-search-location">Preferred Job Location</label>
+          <div class="job-location-row">
+            <input
+              id="job-search-location"
+              type="text"
+              placeholder="Enter city or state, e.g. Jaipur, Rajasthan"
+              autocomplete="address-level2"
+            />
+            <button id="use-my-location-btn" class="secondary-button" type="button">Use My Location</button>
+            <button id="search-location-jobs-btn" class="secondary-button" type="button">Search Location Jobs</button>
+          </div>
+          <p id="location-permission-note" class="snapshot-meta">
+            Your location will be asked for job finding if you use &quot;Use My Location&quot;.
+          </p>
+        </div>
+        <p id="live-jobs-error" class="status-message"></p>
+        <div id="live-jobs-list" class="live-jobs-grid"></div>
+        <div class="live-jobs-actions">
+          <button id="load-more-jobs-btn" class="secondary-button hidden" type="button">Load More Jobs</button>
+        </div>
+      </article>
+
       <article id="upgrade-card" class="panel card upgrade-card hidden">
         <div class="upgrade-head">
           <div>
@@ -238,7 +272,10 @@
           <article class="panel card latex-card">
             <div class="latex-card-head">
               <h3>Overleaf LaTeX Resume</h3>
-              <button id="copy-latex-btn" class="secondary-button hidden" type="button">Copy LaTeX</button>
+              <div class="latex-card-actions">
+                <button id="open-overleaf-btn" class="secondary-button hidden" type="button">Open in Overleaf</button>
+                <button id="copy-latex-btn" class="secondary-button hidden" type="button">Copy LaTeX</button>
+              </div>
             </div>
             <pre id="upgrade-latex-output" class="snapshot-text code-block"></pre>
           </article>

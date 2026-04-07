@@ -46,10 +46,21 @@ const interviewQuestionsList = document.getElementById("interview-questions-list
 const tailorSummary = document.getElementById("tailor-summary");
 const tailorBulletsList = document.getElementById("tailor-bullets-list");
 const tailorSkillsList = document.getElementById("tailor-skills-list");
+const liveJobsCard = document.getElementById("live-jobs-card");
+const liveJobsNote = document.getElementById("live-jobs-note");
+const liveJobsQuery = document.getElementById("live-jobs-query");
+const liveJobsSourceLink = document.getElementById("live-jobs-source-link");
+const liveJobsError = document.getElementById("live-jobs-error");
+const liveJobsList = document.getElementById("live-jobs-list");
+const jobSearchLocationInput = document.getElementById("job-search-location");
+const useMyLocationButton = document.getElementById("use-my-location-btn");
+const searchLocationJobsButton = document.getElementById("search-location-jobs-btn");
+const loadMoreJobsButton = document.getElementById("load-more-jobs-btn");
 const upgradeCard = document.getElementById("upgrade-card");
 const generateUpgradeButton = document.getElementById("generate-upgrade-btn");
 const downloadPdfButton = document.getElementById("download-pdf-btn");
 const downloadLatexButton = document.getElementById("download-latex-btn");
+const openOverleafButton = document.getElementById("open-overleaf-btn");
 const copyLatexButton = document.getElementById("copy-latex-btn");
 const upgradeStatusMessage = document.getElementById("upgrade-status-message");
 const upgradePreviewStatus = document.getElementById("upgrade-preview-status");
@@ -71,7 +82,17 @@ let latestCompiledPdfUrl = "";
 let latestCompiledPreviewUrl = "";
 let roleAnalysisReady = false;
 let latestCvScanScore = null;
+let uploadedResumeFileUrl = "";
 let uploadedResumePreviewUrl = "";
+let renderedLiveJobKeys = new Set();
+let liveJobsSearchState = {
+  targetRole: "",
+  locationQuery: "",
+  latitude: null,
+  longitude: null,
+  page: 1,
+  hasMore: false,
+};
 
 function setStatus(message, isError = false) {
   statusMessage.textContent = message || "";
@@ -94,6 +115,10 @@ function setUpgradePreviewStatus(message, isError = false) {
 }
 
 function releaseUploadedResumePreview() {
+  if (uploadedResumeFileUrl) {
+    window.URL.revokeObjectURL(uploadedResumeFileUrl);
+    uploadedResumeFileUrl = "";
+  }
   if (uploadedResumePreviewUrl) {
     window.URL.revokeObjectURL(uploadedResumePreviewUrl);
     uploadedResumePreviewUrl = "";
@@ -124,6 +149,49 @@ function buildPdfPreviewUrl(url) {
     return "";
   }
   return `${url}#page=1&toolbar=0&navpanes=0&scrollbar=0&zoom=page-width`;
+}
+
+function formatPublishedDate(value) {
+  if (!value) {
+    return "";
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(parsed);
+}
+
+function buildLiveJobKey(job) {
+  return (
+    String(job.application_link || "").trim().toLowerCase() ||
+    `${String(job.title || "").trim().toLowerCase()}::${String(job.company_name || "")
+      .trim()
+      .toLowerCase()}`
+  );
+}
+
+function setLiveJobsSearchState(nextState = {}) {
+  liveJobsSearchState = {
+    ...liveJobsSearchState,
+    ...nextState,
+  };
+}
+
+function updateLoadMoreJobsButton(hasMore, query) {
+  if (!loadMoreJobsButton) {
+    return;
+  }
+
+  const shouldShow = Boolean(query) && Boolean(hasMore);
+  loadMoreJobsButton.classList.toggle("hidden", !shouldShow);
+  loadMoreJobsButton.disabled = !shouldShow;
 }
 
 function startLoading(messages) {
@@ -316,6 +384,26 @@ function resetResults() {
   resumePreview.textContent = "";
   jobDescriptionPreview.textContent = "";
   jobTargetRole.textContent = "";
+  liveJobsCard.classList.add("hidden");
+  liveJobsList.innerHTML = "";
+  liveJobsNote.textContent = "";
+  liveJobsQuery.textContent = "";
+  liveJobsError.textContent = "";
+  if (jobSearchLocationInput) {
+    jobSearchLocationInput.value = "";
+  }
+  liveJobsSourceLink.classList.add("hidden");
+  liveJobsSourceLink.removeAttribute("href");
+  renderedLiveJobKeys = new Set();
+  setLiveJobsSearchState({
+    targetRole: "",
+    locationQuery: "",
+    latitude: null,
+    longitude: null,
+    page: 1,
+    hasMore: false,
+  });
+  updateLoadMoreJobsButton(false, "");
 
   resumeSnapshotCard.classList.remove("hidden");
   jobSnapshotCard.classList.add("hidden");
@@ -342,6 +430,7 @@ function resetUpgradeResults() {
   upgradeResults.classList.add("hidden");
   downloadPdfButton.classList.add("hidden");
   downloadLatexButton.classList.add("hidden");
+  openOverleafButton.classList.add("hidden");
   copyLatexButton.classList.add("hidden");
   setUpgradePreviewStatus("");
 }
@@ -515,12 +604,45 @@ function renderResumePreview(container, snapshotText) {
   container.appendChild(sheet);
 }
 
-function renderOriginalResumePreview(snapshotText) {
+async function renderOriginalResumePreview(snapshotText) {
+  if (fileInput.files.length > 0) {
+    if (!uploadedResumePreviewUrl) {
+      try {
+        const formData = new FormData();
+        formData.append("resume_file", fileInput.files[0]);
+        const response = await fetch("/api/render-pdf-preview", {
+          method: "POST",
+          body: formData,
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.detail || "Unable to render the original resume preview.");
+        }
+        const previewBlob = await response.blob();
+        uploadedResumePreviewUrl = window.URL.createObjectURL(previewBlob);
+      } catch (error) {
+        uploadedResumePreviewUrl = "";
+      }
+    }
+  }
+
   if (uploadedResumePreviewUrl) {
+    upgradeOriginalPreview.innerHTML = "";
+    const previewImage = document.createElement("img");
+    previewImage.className = "pdf-preview-image";
+    previewImage.src = uploadedResumePreviewUrl;
+    previewImage.alt = "Uploaded original resume preview";
+    previewImage.loading = "lazy";
+    upgradeOriginalPreview.classList.add("pdf-preview-shell");
+    upgradeOriginalPreview.appendChild(previewImage);
+    return;
+  }
+
+  if (uploadedResumeFileUrl) {
     upgradeOriginalPreview.innerHTML = "";
     const frame = document.createElement("iframe");
     frame.className = "pdf-preview-object";
-    frame.src = buildPdfPreviewUrl(uploadedResumePreviewUrl);
+    frame.src = buildPdfPreviewUrl(uploadedResumeFileUrl);
     frame.title = "Uploaded original resume PDF preview";
     frame.loading = "lazy";
     upgradeOriginalPreview.classList.add("pdf-preview-shell");
@@ -656,19 +778,362 @@ function renderAnalysisCards(result, context) {
   tailorSummary.textContent = tailor.improved_professional_summary || "No professional summary recommendation available.";
   renderList(tailorBulletsList, tailor.stronger_project_bullets, "No stronger project bullets generated.");
   renderList(tailorSkillsList, tailor.suggested_skills_keywords, "No extra skills keywords suggested.");
+  renderLiveJobs(result);
 
   resultsSection.classList.remove("hidden");
   resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function renderResumeUpgrade(data, selectedRole) {
+function renderLiveJobs(result, options = {}) {
+  const { append = false } = options;
+  const jobs = Array.isArray(result.live_market_jobs) ? result.live_market_jobs : [];
+  const sourceName = result.live_market_jobs_source_name || "";
+  const sourceUrl = result.live_market_jobs_source_url || "";
+  const query = result.live_market_jobs_query || "";
+  const note = result.live_market_jobs_note || "";
+  const error = result.live_market_jobs_error || "";
+  const resolvedLocationLabel = result.resolved_location_label || "";
+  const page = Number(result.live_market_jobs_page || 1);
+  const hasMore = Boolean(result.live_market_jobs_has_more);
+
+  if (!query) {
+    liveJobsCard.classList.add("hidden");
+    liveJobsList.innerHTML = "";
+    liveJobsNote.textContent = "";
+    liveJobsQuery.textContent = "";
+    liveJobsError.textContent = "";
+    liveJobsSourceLink.classList.add("hidden");
+    liveJobsSourceLink.removeAttribute("href");
+    renderedLiveJobKeys = new Set();
+    updateLoadMoreJobsButton(false, "");
+    return;
+  }
+
+  liveJobsCard.classList.remove("hidden");
+  liveJobsNote.textContent = note || "Live remote job listings related to the selected role.";
+  liveJobsQuery.textContent = resolvedLocationLabel
+    ? `Role query: ${query} • Location: ${resolvedLocationLabel}`
+    : `Role query: ${query}`;
+  if (resolvedLocationLabel && jobSearchLocationInput) {
+    jobSearchLocationInput.value = resolvedLocationLabel;
+  }
+  liveJobsError.textContent = error || "";
+  liveJobsError.classList.toggle("error", Boolean(error));
+  updateLoadMoreJobsButton(hasMore, query);
+  setLiveJobsSearchState({
+    page,
+    hasMore,
+    targetRole: query,
+  });
+
+  if (sourceUrl) {
+    liveJobsSourceLink.href = sourceUrl;
+    liveJobsSourceLink.textContent = sourceName ? `Source: ${sourceName}` : "View Source";
+    liveJobsSourceLink.classList.remove("hidden");
+  } else {
+    liveJobsSourceLink.classList.add("hidden");
+  }
+
+  if (!append) {
+    liveJobsList.innerHTML = "";
+    renderedLiveJobKeys = new Set();
+  }
+
+  if (jobs.length === 0) {
+    if (!append) {
+      const emptyState = document.createElement("p");
+      emptyState.className = "body-copy";
+      emptyState.textContent = error
+        ? "Role analysis completed, but live jobs could not be loaded right now."
+        : "No live jobs were found for this role right now.";
+      liveJobsList.appendChild(emptyState);
+    }
+    return;
+  }
+
+  jobs.forEach((job) => {
+    const key = buildLiveJobKey(job);
+    if (!key || renderedLiveJobKeys.has(key)) {
+      return;
+    }
+    renderedLiveJobKeys.add(key);
+
+    const card = document.createElement("article");
+    card.className = "live-job-item";
+
+    const title = document.createElement("a");
+    title.className = "live-job-title";
+    title.href = job.application_link || "#";
+    title.target = "_blank";
+    title.rel = "noreferrer";
+    title.textContent = job.title || "Untitled role";
+    card.appendChild(title);
+
+    const company = document.createElement("p");
+    company.className = "live-job-company";
+    company.textContent = job.company_name || "Unknown company";
+    card.appendChild(company);
+
+    const metaBits = [
+      job.location_summary,
+      job.employment_type,
+      job.seniority,
+      job.salary_summary,
+      formatPublishedDate(job.published_at),
+    ].filter(Boolean);
+
+    const meta = document.createElement("p");
+    meta.className = "live-job-meta";
+    meta.textContent = metaBits.join(" • ");
+    card.appendChild(meta);
+
+    const excerpt = document.createElement("p");
+    excerpt.className = "live-job-excerpt";
+    excerpt.textContent = job.excerpt || "No job summary available.";
+    card.appendChild(excerpt);
+
+    const apply = document.createElement("a");
+    apply.className = "live-job-apply";
+    apply.href = job.application_link || "#";
+    apply.target = "_blank";
+    apply.rel = "noreferrer";
+    apply.textContent = "Open Listing";
+    card.appendChild(apply);
+
+    liveJobsList.appendChild(card);
+  });
+}
+
+function requestBrowserLocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("Browser location access is not available on this device."));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve(position),
+      (error) => {
+        if (error.code === error.PERMISSION_DENIED) {
+          reject(new Error("Location access was denied. Allow location to run nearby job search."));
+          return;
+        }
+        if (error.code === error.POSITION_UNAVAILABLE) {
+          reject(new Error("Your location could not be determined right now."));
+          return;
+        }
+        if (error.code === error.TIMEOUT) {
+          reject(new Error("Location request timed out. Try again."));
+          return;
+        }
+        reject(new Error("Unable to access your location right now."));
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 10000,
+        maximumAge: 300000,
+      }
+    );
+  });
+}
+
+async function findJobsNearMe() {
+  const selectedRole = targetRoleSelect.value.trim();
+  if (!selectedRole) {
+    setStatus("Select a target role before using location-based job search.", true);
+    return;
+  }
+
+  const confirmed = window.confirm("Your location will be asked for job finding. Continue?");
+  if (!confirmed) {
+    return;
+  }
+
+  setButtonLoading(useMyLocationButton, true, "Use My Location", "Detecting Location...");
+  liveJobsError.textContent = "Requesting location access for job finding...";
+  liveJobsError.classList.remove("error");
+
+  try {
+    const position = await requestBrowserLocation();
+    const formData = new FormData();
+    formData.append("target_role", selectedRole);
+    formData.append("latitude", String(position.coords.latitude));
+    formData.append("longitude", String(position.coords.longitude));
+    formData.append("page", "1");
+
+    liveJobsError.textContent = "Finding live jobs for your location...";
+
+    const response = await fetch("/api/location-jobs", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "Unable to load location-based jobs right now.");
+    }
+
+    if (data.resolved_location_label && jobSearchLocationInput) {
+      jobSearchLocationInput.value = data.resolved_location_label;
+    }
+    renderLiveJobs(data);
+    setLiveJobsSearchState({
+      targetRole: selectedRole,
+      locationQuery: data.resolved_location_label || "",
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      page: Number(data.live_market_jobs_page || 1),
+      hasMore: Boolean(data.live_market_jobs_has_more),
+    });
+    if (data.live_market_jobs_error) {
+      liveJobsError.textContent = data.live_market_jobs_error;
+      liveJobsError.classList.add("error");
+      return;
+    }
+
+    liveJobsError.textContent = data.resolved_location_label
+      ? `Showing live role matches filtered for ${data.resolved_location_label}.`
+      : "Showing live jobs filtered using your current location.";
+    liveJobsError.classList.remove("error");
+  } catch (error) {
+    liveJobsError.textContent = error.message || "Unable to load location-based jobs right now.";
+    liveJobsError.classList.add("error");
+  } finally {
+    setButtonLoading(useMyLocationButton, false, "Use My Location", "Detecting Location...");
+  }
+}
+
+async function searchJobsByLocation() {
+  const selectedRole = targetRoleSelect.value.trim();
+  if (!selectedRole) {
+    setStatus("Select a target role before searching jobs by location.", true);
+    return;
+  }
+
+  const locationQuery = jobSearchLocationInput ? jobSearchLocationInput.value.trim() : "";
+  if (!locationQuery) {
+    liveJobsError.textContent = "Enter a city or state before searching location-based jobs.";
+    liveJobsError.classList.add("error");
+    return;
+  }
+
+  setButtonLoading(searchLocationJobsButton, true, "Search Location Jobs", "Searching Jobs...");
+  liveJobsError.textContent = `Finding live jobs for ${locationQuery}...`;
+  liveJobsError.classList.remove("error");
+
+  try {
+    const formData = new FormData();
+    formData.append("target_role", selectedRole);
+    formData.append("location_query", locationQuery);
+    formData.append("page", "1");
+
+    const response = await fetch("/api/location-jobs", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "Unable to search jobs for that location right now.");
+    }
+
+    renderLiveJobs(data);
+    setLiveJobsSearchState({
+      targetRole: selectedRole,
+      locationQuery: data.resolved_location_label || locationQuery,
+      latitude: null,
+      longitude: null,
+      page: Number(data.live_market_jobs_page || 1),
+      hasMore: Boolean(data.live_market_jobs_has_more),
+    });
+    if (data.live_market_jobs_error) {
+      liveJobsError.textContent = data.live_market_jobs_error;
+      liveJobsError.classList.add("error");
+      return;
+    }
+
+    liveJobsError.textContent = data.resolved_location_label
+      ? `Showing live role matches for ${data.resolved_location_label}.`
+      : `Showing live role matches for ${locationQuery}.`;
+    liveJobsError.classList.remove("error");
+  } catch (error) {
+    liveJobsError.textContent = error.message || "Unable to search jobs for that location right now.";
+    liveJobsError.classList.add("error");
+  } finally {
+    setButtonLoading(searchLocationJobsButton, false, "Search Location Jobs", "Searching Jobs...");
+  }
+}
+
+async function loadMoreJobs() {
+  const { targetRole, locationQuery, latitude, longitude, page, hasMore } = liveJobsSearchState;
+  if (!targetRole || !hasMore) {
+    return;
+  }
+
+  const nextPage = Number(page || 1) + 1;
+  setButtonLoading(loadMoreJobsButton, true, "Load More Jobs", "Loading More...");
+  liveJobsError.textContent = "Loading more jobs...";
+  liveJobsError.classList.remove("error");
+
+  try {
+    const formData = new FormData();
+    formData.append("target_role", targetRole);
+    formData.append("page", String(nextPage));
+
+    if (latitude !== null && longitude !== null) {
+      formData.append("latitude", String(latitude));
+      formData.append("longitude", String(longitude));
+    } else if (locationQuery) {
+      formData.append("location_query", locationQuery);
+    }
+
+    const response = await fetch("/api/location-jobs", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "Unable to load more jobs right now.");
+    }
+
+    renderLiveJobs(data, { append: true });
+    setLiveJobsSearchState({
+      page: Number(data.live_market_jobs_page || nextPage),
+      hasMore: Boolean(data.live_market_jobs_has_more),
+      locationQuery: data.resolved_location_label || locationQuery,
+    });
+
+    if (data.live_market_jobs_error) {
+      liveJobsError.textContent = data.live_market_jobs_error;
+      liveJobsError.classList.add("error");
+      return;
+    }
+
+    if (Array.isArray(data.live_market_jobs) && data.live_market_jobs.length > 0) {
+      liveJobsError.textContent = "Loaded more jobs.";
+      liveJobsError.classList.remove("error");
+    } else {
+      liveJobsError.textContent = "No more jobs were found for this search.";
+      liveJobsError.classList.remove("error");
+    }
+  } catch (error) {
+    liveJobsError.textContent = error.message || "Unable to load more jobs right now.";
+    liveJobsError.classList.add("error");
+  } finally {
+    setButtonLoading(loadMoreJobsButton, false, "Load More Jobs", "Loading More...");
+    updateLoadMoreJobsButton(liveJobsSearchState.hasMore, liveJobsSearchState.targetRole);
+  }
+}
+
+async function renderResumeUpgrade(data, selectedRole) {
   latestLatexResume = data.latex_resume || "";
   const beforeScore = Number(data.ats_score_before || 0);
   const afterScore = Number(data.ats_score_after || beforeScore);
   upgradeScoreBefore.textContent = String(beforeScore);
   upgradeScoreAfter.textContent = String(afterScore);
   upgradeSummary.textContent = data.improvement_summary || "No upgrade summary available.";
-  renderOriginalResumePreview(data.original_resume_snapshot || "No original snapshot available.");
+  await renderOriginalResumePreview(data.original_resume_snapshot || "No original snapshot available.");
   upgradeUpdatedPreview.classList.remove("pdf-preview-shell");
   renderResumePreview(
     upgradeUpdatedPreview,
@@ -679,6 +1144,7 @@ function renderResumeUpgrade(data, selectedRole) {
   renderList(upgradeLatexNotesList, data.latex_notes, "No LaTeX notes available.");
   upgradeResults.classList.remove("hidden");
   downloadLatexButton.classList.remove("hidden");
+  openOverleafButton.classList.remove("hidden");
   copyLatexButton.classList.remove("hidden");
   setUpgradeStatus(`Generated a role-tailored resume upgrade for ${selectedRole}.`);
 }
@@ -751,7 +1217,7 @@ async function generateResumeUpgrade() {
       throw new Error(data.detail || "Unable to generate the resume upgrade right now.");
     }
 
-    renderResumeUpgrade(data, selectedRole);
+    await renderResumeUpgrade(data, selectedRole);
     await compileResumePreview(data.latex_resume || "", selectedRole);
   } catch (error) {
     setUpgradeStatus(error.message || "Unexpected error while generating the updated resume.", true);
@@ -810,6 +1276,36 @@ async function copyLatexResume() {
   } catch (error) {
     setUpgradeStatus("Unable to copy the LaTeX code automatically. Use the code block below.", true);
   }
+}
+
+function openResumeInOverleaf() {
+  if (!latestLatexResume) {
+    setUpgradeStatus("Generate the updated resume before opening it in Overleaf.", true);
+    return;
+  }
+
+  const form = document.createElement("form");
+  form.action = "https://www.overleaf.com/docs";
+  form.method = "post";
+  form.target = "_blank";
+  form.style.display = "none";
+
+  const encodedSnip = document.createElement("input");
+  encodedSnip.type = "hidden";
+  encodedSnip.name = "encoded_snip";
+  encodedSnip.value = encodeURIComponent(latestLatexResume);
+  form.appendChild(encodedSnip);
+
+  const snipName = document.createElement("input");
+  snipName.type = "hidden";
+  snipName.name = "snip_name";
+  snipName.value = "resume.tex";
+  form.appendChild(snipName);
+
+  document.body.appendChild(form);
+  form.submit();
+  form.remove();
+  setUpgradeStatus("Opened the generated LaTeX in Overleaf.");
 }
 
 async function downloadPdfResume() {
@@ -986,6 +1482,14 @@ async function analyzeSelectedRole() {
       jobDescription,
       showJobSnapshot: true,
     });
+    setLiveJobsSearchState({
+      targetRole: selectedRole,
+      locationQuery: "",
+      latitude: null,
+      longitude: null,
+      page: Number(data.live_market_jobs_page || 1),
+      hasMore: Boolean(data.live_market_jobs_has_more),
+    });
 
     roleAnalysisReady = true;
     upgradeCard.classList.remove("hidden");
@@ -1054,11 +1558,20 @@ if (resumeTextInput) {
   });
 }
 
+if (jobSearchLocationInput) {
+  jobSearchLocationInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      searchJobsByLocation();
+    }
+  });
+}
+
 fileInput.addEventListener("change", () => {
   releaseUploadedResumePreview();
   if (fileInput.files.length > 0) {
     const selectedFile = fileInput.files[0];
-    uploadedResumePreviewUrl = window.URL.createObjectURL(selectedFile);
+    uploadedResumeFileUrl = window.URL.createObjectURL(selectedFile);
     setStatus(`Selected resume: ${selectedFile.name}`);
   } else {
     setStatus("");
@@ -1076,8 +1589,12 @@ fileInput.addEventListener("change", () => {
 
 analyzeButton.addEventListener("click", analyzeSelectedRole);
 generateUpgradeButton.addEventListener("click", generateResumeUpgrade);
+useMyLocationButton.addEventListener("click", findJobsNearMe);
+searchLocationJobsButton.addEventListener("click", searchJobsByLocation);
+loadMoreJobsButton.addEventListener("click", loadMoreJobs);
 downloadPdfButton.addEventListener("click", downloadPdfResume);
 downloadLatexButton.addEventListener("click", downloadLatexResume);
+openOverleafButton.addEventListener("click", openResumeInOverleaf);
 copyLatexButton.addEventListener("click", copyLatexResume);
 updateUpgradeAvailability();
 
@@ -1087,11 +1604,3 @@ window.addEventListener("beforeunload", releaseCompiledPdfPreview);
 analysisForm.addEventListener("submit", (event) => {
   event.preventDefault();
 });
-// error states
-// loading states
-// error states
-// loading states
-// error states
-// loading states
-// error states
-// loading states

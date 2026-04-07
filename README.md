@@ -25,6 +25,7 @@ This tool acts like a recruiter + ATS assistant. Users can upload a PDF resume (
 - Resume upgrade workflow with old-vs-new snapshot comparison
 - Overleaf-ready LaTeX resume generation
 - PDF preview image rendering and PDF/LaTeX download actions
+- India-first live job discovery with manual city/state search and browser location detection
 - Free built-in ATS-style analyzer (no API key required)
 - Optional OpenAI-powered structured JSON analysis
 - Clean, responsive UI with result cards
@@ -37,6 +38,7 @@ This tool acts like a recruiter + ATS assistant. Users can upload a PDF resume (
 - Backend: FastAPI
 - Frontend: Jinja templates + vanilla HTML/CSS/JS
 - Analysis Engine: Groq API or local free LLM via Ollama + heuristic fallback + optional OpenAI API
+- Jobs Data: Adzuna (India/local) + Himalayas (remote supplement)
 - PDF Parsing: `pypdf`
 - Resume Output: LaTeX generation + PDF compilation/preview
 - Deployment: Docker + Uvicorn
@@ -105,6 +107,9 @@ OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
 GROQ_API_KEY=
 GROQ_MODEL=llama-3.1-8b-instant
+ADZUNA_APP_ID=
+ADZUNA_APP_KEY=
+ADZUNA_COUNTRY=in
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=llama3.1:8b
 OLLAMA_TIMEOUT_SECONDS=120
@@ -117,6 +122,11 @@ Mode options:
 - `ANALYZER_MODE=auto`: try OpenAI if key is set, then Groq if key is set, then local LLM, then heuristic fallback.
 - `ANALYZER_MODE=free`: always use free local analysis (no API key).
 - `ANALYZER_MODE=openai`: require OpenAI key and use model-based analysis.
+
+Optional jobs config:
+
+- `ADZUNA_APP_ID` / `ADZUNA_APP_KEY`: enable India/local job listings from Adzuna.
+- `ADZUNA_COUNTRY=in`: country dataset used for Adzuna search. Keep `in` for this India-focused project.
 
 ### Run With Groq
 

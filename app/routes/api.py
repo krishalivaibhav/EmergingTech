@@ -6,11 +6,13 @@ from app.models.schemas import (
     AnalysisResponse,
     CVScanResponse,
     LatexCompileRequest,
+    LiveMarketJobsResponse,
     ResumeUpgradeResponse,
     RoleSuggestionResponse,
 )
 from app.services.analyzer import ResumeJobAnalyzer
 from app.services.groq_service import GroqConfigurationError, GroqServiceError
+from app.services.job_market_service import JobMarketService, JobMarketServiceError
 from app.services.latex_compiler import (
     LaTeXCompilationError,
     LaTeXCompilerService,
@@ -40,6 +42,11 @@ def get_latex_compiler() -> LaTeXCompilerService:
 
 
 @lru_cache(maxsize=1)
+def get_job_market_service() -> JobMarketService:
+    return JobMarketService()
+
+
+@lru_cache(maxsize=1)
 def get_pdf_preview_service() -> PDFPreviewService:
     return PDFPreviewService()
 
@@ -57,6 +64,31 @@ def _build_role_based_job_description(target_role: str) -> str:
         "Evaluate responsibilities, required technical skills, collaboration ability, "
         "problem-solving approach, and communication expectations."
     )
+
+
+def _build_live_jobs_payload(
+    *,
+    jobs: list[dict],
+    query: str,
+    source_name: str,
+    source_url: str,
+    note: str,
+    error: str = "",
+    resolved_location_label: str = "",
+    page: int = 1,
+    has_more: bool = False,
+) -> dict:
+    return {
+        "live_market_jobs": jobs,
+        "live_market_jobs_query": query,
+        "live_market_jobs_source_name": source_name,
+        "live_market_jobs_source_url": source_url,
+        "live_market_jobs_note": note,
+        "live_market_jobs_error": error,
+        "resolved_location_label": resolved_location_label,
+        "live_market_jobs_page": page,
+        "live_market_jobs_has_more": has_more,
+    }
 
 
 async def _collect_resume_text(resume_file: UploadFile | None, resume_text: str) -> str:
@@ -117,7 +149,7 @@ async def analyze_resume(
 
     try:
         analyzer = get_analyzer()
-        return analyzer.analyze(
+        analysis = analyzer.analyze(
             resume_text=combined_resume,
             job_description=effective_job_description,
         )
@@ -128,6 +160,101 @@ async def analyze_resume(
             status_code=502,
             detail=f"AI analysis failed. Please retry. ({exc})",
         ) from exc
+
+    live_jobs_payload = _build_live_jobs_payload(
+        jobs=[],
+        query="",
+        source_name="",
+        source_url="",
+        note="",
+    )
+
+    if cleaned_target_role:
+        try:
+            market_service = get_job_market_service()
+            live_jobs = await market_service.fetch_live_jobs(cleaned_target_role)
+            live_jobs_payload = _build_live_jobs_payload(
+                jobs=live_jobs.jobs,
+                query=cleaned_target_role,
+                source_name=live_jobs.source_name,
+                source_url=live_jobs.source_url,
+                note=live_jobs.note,
+                page=live_jobs.page,
+                has_more=live_jobs.has_more,
+            )
+        except JobMarketServiceError as exc:
+            live_jobs_payload = _build_live_jobs_payload(
+                jobs=[],
+                query=cleaned_target_role,
+                source_name="Adzuna + Himalayas",
+                source_url="https://www.adzuna.in/",
+                note="India-focused jobs come from Adzuna and remote jobs come from Himalayas.",
+                error=str(exc),
+            )
+
+    return AnalysisResponse(**(analysis.model_dump() | live_jobs_payload))
+
+
+@router.post("/location-jobs", response_model=LiveMarketJobsResponse)
+async def fetch_location_jobs(
+    target_role: str = Form(default=""),
+    location_query: str = Form(default=""),
+    latitude: float | None = Form(default=None),
+    longitude: float | None = Form(default=None),
+    page: int = Form(default=1),
+) -> LiveMarketJobsResponse:
+    cleaned_target_role = target_role.strip()
+    cleaned_location_query = location_query.strip()
+    current_page = max(int(page or 1), 1)
+    if not cleaned_target_role:
+        raise HTTPException(status_code=400, detail="Select a target role before using location-based job search.")
+
+    try:
+        market_service = get_job_market_service()
+        if latitude is not None and longitude is not None:
+            live_jobs = await market_service.fetch_live_jobs_by_coordinates(
+                role_query=cleaned_target_role,
+                latitude=latitude,
+                longitude=longitude,
+                page=current_page,
+            )
+        elif cleaned_location_query:
+            live_jobs = await market_service.fetch_live_jobs_by_location_query(
+                role_query=cleaned_target_role,
+                location_query=cleaned_location_query,
+                page=current_page,
+            )
+        else:
+            live_jobs = await market_service.fetch_live_jobs(
+                role_query=cleaned_target_role,
+                page=current_page,
+            )
+    except JobMarketServiceError as exc:
+        return LiveMarketJobsResponse(
+            **_build_live_jobs_payload(
+                jobs=[],
+                query=cleaned_target_role,
+                source_name="Adzuna + Himalayas",
+                source_url="https://www.adzuna.in/",
+                note="India-focused jobs come from Adzuna and remote jobs come from Himalayas.",
+                error=str(exc),
+                resolved_location_label=cleaned_location_query,
+                page=current_page,
+            )
+        )
+
+    return LiveMarketJobsResponse(
+        **_build_live_jobs_payload(
+            jobs=live_jobs.jobs,
+            query=cleaned_target_role,
+            source_name=live_jobs.source_name,
+            source_url=live_jobs.source_url,
+            note=live_jobs.note,
+            resolved_location_label=live_jobs.resolved_location_label,
+            page=live_jobs.page,
+            has_more=live_jobs.has_more,
+        )
+    )
 
 
 @router.post("/suggest-roles", response_model=RoleSuggestionResponse)
@@ -241,6 +368,27 @@ async def compile_latex_preview_image(payload: LatexCompileRequest) -> Response:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     headers = {"Content-Disposition": 'inline; filename="updated-resume-preview.png"'}
+    return Response(content=png_bytes, media_type="image/png", headers=headers)
+
+
+@router.post("/render-pdf-preview")
+async def render_pdf_preview(resume_file: UploadFile = File(...)) -> Response:
+    if not resume_file.filename or not _is_pdf_upload(resume_file):
+        raise HTTPException(status_code=400, detail="Resume file must be a PDF.")
+
+    file_bytes = await resume_file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded resume file is empty.")
+
+    try:
+        preview_service = get_pdf_preview_service()
+        png_bytes = preview_service.render_first_page_png(file_bytes)
+    except PDFPreviewUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except PDFPreviewRenderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    headers = {"Content-Disposition": 'inline; filename="resume-preview.png"'}
     return Response(content=png_bytes, media_type="image/png", headers=headers)
 
 
