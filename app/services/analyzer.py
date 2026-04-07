@@ -120,95 +120,73 @@ class ResumeJobAnalyzer:
         )
         return ResumeUpgradeResponse(**normalized)
 
-    def _run_analysis(self, resume_text: str, job_description: str) -> dict[str, Any]:
+    def _run_with_fallback(
+        self,
+        *,
+        mode_handlers: dict[str, object],
+        free_handler: object,
+        args: tuple,
+    ) -> dict[str, Any]:
+        """Generic fallback cascade: explicit mode → OpenAI → Groq → Local LLM → Free."""
         if self.mode == "free":
-            return self.free_service.generate_structured_analysis(resume_text, job_description)
+            return free_handler(*args)
 
-        if self.mode == "openai":
-            return self._analyze_with_openai(resume_text, job_description)
+        if self.mode in mode_handlers:
+            return mode_handlers[self.mode](*args)
 
-        if self.mode == "groq":
-            return self._analyze_with_groq(resume_text, job_description)
+        # Auto mode: try each backend in priority order, fall back gracefully
+        auto_chain = [
+            ("OPENAI_API_KEY", "openai", (LLMConfigurationError, LLMServiceError)),
+            ("GROQ_API_KEY", "groq", (GroqConfigurationError, GroqServiceError)),
+        ]
+        for env_key, handler_key, exc_types in auto_chain:
+            if os.getenv(env_key, "").strip() and handler_key in mode_handlers:
+                try:
+                    return mode_handlers[handler_key](*args)
+                except exc_types:
+                    pass
 
-        if self.mode == "local_llm":
-            return self._analyze_with_local_llm(resume_text, job_description)
-
-        if os.getenv("OPENAI_API_KEY", "").strip():
+        if "local_llm" in mode_handlers:
             try:
-                return self._analyze_with_openai(resume_text, job_description)
-            except (LLMConfigurationError, LLMServiceError):
+                return mode_handlers["local_llm"](*args)
+            except (LocalLLMConfigurationError, LocalLLMServiceError):
                 pass
 
-        if os.getenv("GROQ_API_KEY", "").strip():
-            try:
-                return self._analyze_with_groq(resume_text, job_description)
-            except (GroqConfigurationError, GroqServiceError):
-                pass
+        return free_handler(*args)
 
-        try:
-            return self._analyze_with_local_llm(resume_text, job_description)
-        except (LocalLLMConfigurationError, LocalLLMServiceError):
-            return self.free_service.generate_structured_analysis(resume_text, job_description)
+    def _run_analysis(self, resume_text: str, job_description: str) -> dict[str, Any]:
+        return self._run_with_fallback(
+            mode_handlers={
+                "openai": self._analyze_with_openai,
+                "groq": self._analyze_with_groq,
+                "local_llm": self._analyze_with_local_llm,
+            },
+            free_handler=self.free_service.generate_structured_analysis,
+            args=(resume_text, job_description),
+        )
 
     def _run_resume_upgrade(self, resume_text: str, job_description: str) -> dict[str, Any]:
-        if self.mode == "free":
-            return self.free_service.generate_resume_upgrade(resume_text, job_description)
-
-        if self.mode == "openai":
-            return self._upgrade_with_openai(resume_text, job_description)
-
-        if self.mode == "groq":
-            return self._upgrade_with_groq(resume_text, job_description)
-
-        if self.mode == "local_llm":
-            return self._upgrade_with_local_llm(resume_text, job_description)
-
-        if os.getenv("OPENAI_API_KEY", "").strip():
-            try:
-                return self._upgrade_with_openai(resume_text, job_description)
-            except (LLMConfigurationError, LLMServiceError):
-                pass
-
-        if os.getenv("GROQ_API_KEY", "").strip():
-            try:
-                return self._upgrade_with_groq(resume_text, job_description)
-            except (GroqConfigurationError, GroqServiceError):
-                pass
-
-        try:
-            return self._upgrade_with_local_llm(resume_text, job_description)
-        except (LocalLLMConfigurationError, LocalLLMServiceError):
-            return self.free_service.generate_resume_upgrade(resume_text, job_description)
+        return self._run_with_fallback(
+            mode_handlers={
+                "openai": self._upgrade_with_openai,
+                "groq": self._upgrade_with_groq,
+                "local_llm": self._upgrade_with_local_llm,
+            },
+            free_handler=self.free_service.generate_resume_upgrade,
+            args=(resume_text, job_description),
+        )
 
     def _run_role_suggestion(self, resume_text: str) -> dict[str, Any]:
-        if self.mode == "free":
-            return self.free_service.suggest_roles(resume_text)
+        return self._run_with_fallback(
+            mode_handlers={
+                "openai": self._suggest_roles_with_openai,
+                "groq": self._suggest_roles_with_groq,
+                "local_llm": self._suggest_roles_with_local_llm,
+            },
+            free_handler=self.free_service.suggest_roles,
+            args=(resume_text,),
+        )
 
-        if self.mode == "openai":
-            return self._suggest_roles_with_openai(resume_text)
-
-        if self.mode == "groq":
-            return self._suggest_roles_with_groq(resume_text)
-
-        if self.mode == "local_llm":
-            return self._suggest_roles_with_local_llm(resume_text)
-
-        if os.getenv("OPENAI_API_KEY", "").strip():
-            try:
-                return self._suggest_roles_with_openai(resume_text)
-            except (LLMConfigurationError, LLMServiceError):
-                pass
-
-        if os.getenv("GROQ_API_KEY", "").strip():
-            try:
-                return self._suggest_roles_with_groq(resume_text)
-            except (GroqConfigurationError, GroqServiceError):
-                pass
-
-        try:
-            return self._suggest_roles_with_local_llm(resume_text)
-        except (LocalLLMConfigurationError, LocalLLMServiceError):
-            return self.free_service.suggest_roles(resume_text)
 
     def _analyze_with_local_llm(self, resume_text: str, job_description: str) -> dict[str, Any]:
         if self.local_llm_service is None:
